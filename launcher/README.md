@@ -60,3 +60,7 @@ APK output: `launcher/app/build/outputs/apk/debug/app-debug.apk`
   unset; the folder is picked once via the system picker (converted to a real path).
   Reading arbitrary paths needs all-files access (`MANAGE_EXTERNAL_STORAGE`), granted
   once from the settings page.
+- Settings is grouped by signpost: a `data` section (monkey dir) and a `permissions`
+  section (all-files, contacts) — each row shows a status dot, `success` when granted.
+  Contacts access is requested inline; once permanently denied the row routes to the
+  app's system settings page instead.

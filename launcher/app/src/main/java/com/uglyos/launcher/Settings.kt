@@ -1,25 +1,34 @@
 package com.uglyos.launcher
 
+import android.Manifest
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Environment
 import android.provider.DocumentsContract
 import android.provider.Settings as AndroidSettings
+import androidx.core.content.ContextCompat
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.ui.draw.clip
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -71,6 +80,34 @@ object Settings {
     fun hasStorageAccess(): Boolean = Environment.isExternalStorageManager()
 }
 
+/** Whether contacts read access is granted, used to search device contacts. */
+private fun hasContactsAccess(context: Context): Boolean =
+    ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS) ==
+        PackageManager.PERMISSION_GRANTED
+
+/**
+ * Whether the runtime permission dialog can still be shown. Once contacts is
+ * permanently denied the system silently drops the request, so we route to the
+ * app's settings page instead.
+ */
+private fun Context.canRequestContacts(): Boolean {
+    val activity = this as? android.app.Activity ?: return true
+    return activity.shouldShowRequestPermissionRationale(Manifest.permission.READ_CONTACTS) ||
+        !hasBeenAsked(activity)
+}
+
+/** True once we've asked for contacts at least once, tracked in prefs. */
+private fun hasBeenAsked(context: Context): Boolean {
+    val prefs = context.getSharedPreferences("ugly_launcher", Context.MODE_PRIVATE)
+    return prefs.getBoolean("contacts_asked", false)
+}
+
+/** Remember that we've now shown the contacts request at least once. */
+private fun markContactsAsked(context: Context) {
+    context.getSharedPreferences("ugly_launcher", Context.MODE_PRIVATE)
+        .edit().putBoolean("contacts_asked", true).apply()
+}
+
 /**
  * Best-effort conversion of a Storage Access Framework tree URI to a real
  * filesystem path. Handles primary storage and named volumes (SD cards); the
@@ -99,16 +136,24 @@ fun SettingsPage() {
     val context = LocalContext.current
     val colors = UglyTheme.colors
     var monkeyDir by remember { mutableStateOf(Settings.monkeyDir(context)) }
-    // Recheck on resume: the user grants all-files access on a system screen.
+    // Recheck on resume: the user grants these on system screens, outside our ui.
     var hasAccess by remember { mutableStateOf(Settings.hasStorageAccess()) }
+    var hasContacts by remember { mutableStateOf(hasContactsAccess(context)) }
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) hasAccess = Settings.hasStorageAccess()
+            if (event == Lifecycle.Event.ON_RESUME) {
+                hasAccess = Settings.hasStorageAccess()
+                hasContacts = hasContactsAccess(context)
+            }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
+
+    val contactsPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted -> hasContacts = granted }
 
     val picker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
@@ -135,17 +180,19 @@ fun SettingsPage() {
             letterSpacing = 2.sp,
             fontFamily = FontFamily.Monospace,
         )
-        SettingGroup {
+        SettingSection("data") {
             SettingRow(
                 label = "monkey dir",
                 value = monkeyDir?.path ?: "tap to choose a folder",
-                isSet = monkeyDir != null,
+                configured = monkeyDir != null,
                 onClick = { picker.launch(null) },
             )
+        }
+        SettingSection("permissions") {
             SettingRow(
                 label = "all-files access",
                 value = if (hasAccess) "granted" else "tap to grant",
-                isSet = hasAccess,
+                configured = hasAccess,
                 onClick = {
                     val intent = Intent(
                         AndroidSettings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
@@ -154,7 +201,67 @@ fun SettingsPage() {
                     context.startActivity(intent)
                 },
             )
+            SettingDivider()
+            SettingRow(
+                label = "contacts access",
+                value = if (hasContacts) "granted" else "tap to grant",
+                configured = hasContacts,
+                onClick = {
+                    // First ask normally; once permanently denied the dialog
+                    // no longer shows, so fall back to the app's settings page.
+                    if (hasContacts || !context.canRequestContacts()) {
+                        context.startActivity(
+                            Intent(
+                                AndroidSettings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                Uri.parse("package:${context.packageName}"),
+                            )
+                        )
+                    } else {
+                        markContactsAsked(context)
+                        contactsPermission.launch(Manifest.permission.READ_CONTACTS)
+                    }
+                },
+            )
         }
+    }
+}
+
+/** A titled group: a [SectionHeader] signpost above a rounded card of rows. */
+@Composable
+private fun SettingSection(title: String, rows: @Composable () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        SectionHeader(title)
+        SettingGroup(content = rows)
+    }
+}
+
+/**
+ * A structural signpost above a group: a bullet dot and a tracked, uppercase
+ * label, echoing the calendar card and search sections so every screen reads as
+ * one phone. The dot is [subtle] — pure structure, never the accent.
+ */
+@Composable
+private fun SectionHeader(label: String) {
+    val colors = UglyTheme.colors
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.padding(start = 4.dp, bottom = 2.dp),
+    ) {
+        Box(
+            Modifier
+                .size(6.dp)
+                .clip(CircleShape)
+                .background(colors.subtle)
+        )
+        Spacer(Modifier.width(10.dp))
+        Text(
+            text = label.uppercase(),
+            color = colors.mutedForeground,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 2.sp,
+            fontFamily = FontFamily.Monospace,
+        )
     }
 }
 
@@ -170,12 +277,26 @@ private fun SettingGroup(content: @Composable () -> Unit) {
     }
 }
 
+/** A hairline between rows in a group, inset to align under the labels. */
+@Composable
+private fun SettingDivider() {
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .padding(start = 20.dp)
+            .height(1.dp)
+            .background(UglyTheme.colors.subtle)
+    )
+}
+
 /**
- * A tappable settings entry: bold label on top, current value below. The trailing
- * chevron and the "tap to…" hint when unset signal that the row opens a picker.
+ * A tappable settings entry: lowercase label on top, current value below in muted
+ * grey. A trailing status dot is the row's one meaningful color — [success] when
+ * [configured], else [subtle] — so the screen stays flat and reads its state at a
+ * glance without shouting.
  */
 @Composable
-private fun SettingRow(label: String, value: String, isSet: Boolean, onClick: () -> Unit) {
+private fun SettingRow(label: String, value: String, configured: Boolean, onClick: () -> Unit) {
     val colors = UglyTheme.colors
     Row(
         modifier = Modifier
@@ -198,17 +319,17 @@ private fun SettingRow(label: String, value: String, isSet: Boolean, onClick: ()
             )
             Text(
                 text = value,
-                color = if (isSet) colors.accent else colors.mutedForeground,
+                color = colors.mutedForeground,
                 fontSize = 13.sp,
                 fontFamily = FontFamily.Monospace,
             )
         }
         Spacer(Modifier.width(12.dp))
-        Text(
-            text = "›",
-            color = colors.mutedForeground,
-            fontSize = 22.sp,
-            fontFamily = FontFamily.Monospace,
+        Box(
+            Modifier
+                .size(8.dp)
+                .clip(CircleShape)
+                .background(if (configured) colors.success else colors.subtle)
         )
     }
 }
