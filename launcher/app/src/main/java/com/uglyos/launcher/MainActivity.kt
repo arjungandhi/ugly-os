@@ -83,6 +83,7 @@ private val pages: List<@Composable () -> Unit> = listOf(
     { HomePage() },
     { BlankPage() },
     { BlankPage() },
+    { SettingsPage() },
 )
 
 @OptIn(ExperimentalMaterial3Api::class)

@@ -23,6 +23,7 @@ APK output: `launcher/app/build/outputs/apk/debug/app-debug.apk`
 
 - `app/src/main/java/com/uglyos/launcher/MainActivity.kt` — home screen + app drawer
 - `app/src/main/java/com/uglyos/launcher/Shortcuts.kt` — home-screen quick-launch grid
+- `app/src/main/java/com/uglyos/launcher/Settings.kt` — settings page + persisted config
 - `app/src/main/AndroidManifest.xml` — registers as HOME, queries launchable apps
 - `app/src/main/res/` — icon (adaptive, Nord-themed monkey), theme, strings
 - `common/` — shared library module (Nord theme, todo.txt library); see `common/README.md`
@@ -37,3 +38,7 @@ APK output: `launcher/app/build/outputs/apk/debug/app-debug.apk`
   implicit intents. Messages maps to Beeper (`com.beeper.android`), videos to
   Grayjay (`com.futo.platformplayer`), and wallet to Google Wallet
   (`com.google.android.apps.walletnfcrel`), all launched by package.
+- Swipe left past the home screen to reach the settings page (4th page). Settings
+  persist in SharedPreferences (`ugly_launcher`). The "monkey dir" is the directory
+  the launcher reads its data from; it starts unset and is chosen via the system
+  folder picker (Storage Access Framework), so the grant survives reboots.
