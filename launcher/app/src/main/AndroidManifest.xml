@@ -11,6 +11,9 @@
     <!-- Global search matches device contacts by name; requested at runtime. -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
 
+    <!-- Home screen shows your next event; requested at runtime. -->
+    <uses-permission android:name="android.permission.READ_CALENDAR" />
+
     <!--
       Lets us enumerate launchable apps without the QUERY_ALL_PACKAGES
       permission. A launcher legitimately needs to see apps that expose a

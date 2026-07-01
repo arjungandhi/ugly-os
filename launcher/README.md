@@ -26,6 +26,8 @@ APK output: `launcher/app/build/outputs/apk/debug/app-debug.apk`
 - `app/src/main/java/com/uglyos/launcher/Settings.kt` — settings page + persisted config
 - `app/src/main/java/com/uglyos/launcher/TodoPage.kt` — read-only todo.txt list pages
 - `app/src/main/java/com/uglyos/launcher/Search.kt` — global spotlight-style search (left of home)
+- `app/src/main/java/com/uglyos/launcher/DateTimeWidget.kt` — home clock, calendar card, next-event line
+- `app/src/main/java/com/uglyos/launcher/NextEvent.kt` — reads the next calendar event via the calendar provider
 - `app/src/main/java/com/uglyos/launcher/Frecency.kt` — per-app launch history feeding search ranking
 - `app/src/main/AndroidManifest.xml` — registers as HOME, queries launchable apps
 - `app/src/main/res/` — icon (adaptive, Nord-themed monkey), theme, strings
@@ -60,7 +62,24 @@ APK output: `launcher/app/build/outputs/apk/debug/app-debug.apk`
   unset; the folder is picked once via the system picker (converted to a real path).
   Reading arbitrary paths needs all-files access (`MANAGE_EXTERNAL_STORAGE`), granted
   once from the settings page.
-- Settings is grouped by signpost: a `data` section (monkey dir) and a `permissions`
-  section (all-files, contacts) — each row shows a status dot, `success` when granted.
-  Contacts access is requested inline; once permanently denied the row routes to the
-  app's system settings page instead.
+- The home clock/calendar card is followed by a quiet next-event stack: up to
+  three of the next hour's events, each with a live "in 12 min" / "ends in 20m"
+  countdown recomputed on each minute tick. The first is the anchor (bullet dot,
+  lit text; the dot goes accent only within 5 minutes of a start), the rest align
+  under it in muted grey. It reads `CalendarContract.Instances` (recurring events
+  expanded), skips all-day events, uses a rolling 60-minute window (so tomorrow's
+  events never leak in), and hides entirely when the next hour is clear. Tapping
+  opens the calendar app.
+- Which calendars feed that stack is user-controlled: the settings `next event`
+  section shows a `calendars` row listing the selected calendars, with an `edit`
+  affordance that opens a popup of full-width on/off toggle rows grouped by
+  account (reference calendars like holidays or subscribed feeds can be silenced
+  there). The *excluded* set is stored (in `excluded_calendars` prefs), so a newly
+  added calendar defaults on rather than being silently missed.
+- Settings is grouped by signpost: a `data` section (monkey dir), a `permissions`
+  section (all-files, contacts, calendar), and a `next event` section (the
+  calendar picker, shown once calendar access is granted) — each permission row
+  shows a status dot, `success` when granted. Access is requested inline; once
+  permanently denied the row routes to the app's system settings page instead.
+  Calendar access (`READ_CALENDAR`) feeds the home-screen next-event stack. The
+  settings page scrolls.

@@ -27,23 +27,30 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.uglyos.common.theme.UglyTheme
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.time.Duration
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
 import java.time.format.TextStyle
 import java.util.Locale
 
@@ -103,7 +110,99 @@ fun DateTimeWidget(modifier: Modifier = Modifier) {
             onClick = { openCalendar(context) },
             modifier = Modifier.fillMaxWidth(),
         )
+        NextEvents(
+            now = now,
+            onClick = { openCalendar(context) },
+            modifier = Modifier.fillMaxWidth(),
+        )
     }
+}
+
+/** Starts within this many minutes count as imminent and earn the accent dot. */
+private const val IMMINENT_MINUTES = 5L
+
+/**
+ * A quiet stack under the calendar card: up to three of the next hour's events,
+ * each with a live countdown. The first is the anchor — a bullet dot (accent
+ * only when imminent) and lit text; the rest align under it in muted grey, so
+ * one thing leads without the block shouting. The calendar read runs off the
+ * main thread and refreshes on each minute tick and when the calendar selection
+ * changes. Renders nothing when the next hour is clear — an empty home screen
+ * stays calm.
+ */
+@Composable
+private fun NextEvents(now: LocalDateTime, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val minute = now.truncatedTo(ChronoUnit.MINUTES)
+    val excluded = Settings.excludedCalendars(context)
+    var events by remember { mutableStateOf(emptyList<NextEvent>()) }
+    LaunchedEffect(minute, excluded) {
+        events = withContext(Dispatchers.IO) { upcomingEvents(context, now) }
+    }
+    if (events.isEmpty()) return
+
+    Spacer(Modifier.height(18.dp))
+    Column(
+        modifier = modifier
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        events.forEachIndexed { index, event ->
+            EventRow(now = now, event = event, primary = index == 0)
+        }
+    }
+}
+
+/** One line in the [NextEvents] stack: countdown then title, dot on the anchor. */
+@Composable
+private fun EventRow(now: LocalDateTime, event: NextEvent, primary: Boolean) {
+    val colors = UglyTheme.colors
+    val lead = if (event.isOngoing(now)) {
+        "ends in " + humanizeMinutes(Duration.between(now, event.end).toMinutes())
+    } else {
+        val mins = Duration.between(now, event.start).toMinutes()
+        if (mins <= 0) "now" else "in " + humanizeMinutes(mins)
+    }
+    val imminent = primary && !event.isOngoing(now) &&
+        Duration.between(now, event.start).toMinutes() <= IMMINENT_MINUTES
+
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        if (primary) {
+            Box(
+                Modifier
+                    .size(6.dp)
+                    .clip(CircleShape)
+                    .background(if (imminent) colors.accent else colors.subtle)
+            )
+        } else {
+            Spacer(Modifier.size(6.dp))
+        }
+        Spacer(Modifier.width(12.dp))
+        Text(
+            text = lead,
+            color = if (primary) colors.foreground else colors.mutedForeground,
+            fontSize = 14.sp,
+            fontWeight = if (primary) FontWeight.Medium else FontWeight.Normal,
+            fontFamily = FontFamily.Monospace,
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(
+            text = "· ${event.title}",
+            color = colors.mutedForeground,
+            fontSize = 14.sp,
+            fontFamily = FontFamily.Monospace,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+/** Terse lowercase duration: "45 min", "1h", "2h 05m". */
+private fun humanizeMinutes(mins: Long): String = when {
+    mins < 60 -> "$mins min"
+    mins % 60 == 0L -> "${mins / 60}h"
+    else -> "%dh %02dm".format(mins / 60, mins % 60)
 }
 
 /**
