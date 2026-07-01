@@ -3,6 +3,9 @@ package com.uglyos.launcher
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Environment
+import android.provider.DocumentsContract
+import android.provider.Settings as AndroidSettings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
@@ -29,14 +32,20 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.compose.runtime.DisposableEffect
 import com.uglyos.common.theme.UglyTheme
+import java.io.File
 
 /**
  * Persistent launcher settings, backed by SharedPreferences.
  *
  * The "monkey dir" is the user-chosen directory the launcher reads its data
- * from (todo.txt, etc.). It's stored as a Storage Access Framework tree URI so
- * the grant survives reboots and app updates; it starts unset.
+ * from (todo.txt, etc.). It's stored as a plain filesystem path so we can read
+ * it directly and watch it with FileObserver; Syncthing keeps it in sync across
+ * devices. It starts unset. Reading arbitrary paths needs all-files access.
  */
 object Settings {
     private const val PREFS = "ugly_launcher"
@@ -45,23 +54,44 @@ object Settings {
     private fun prefs(context: Context) =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
-    /** The monkey dir tree URI, or null if the user hasn't set one. */
-    fun monkeyDir(context: Context): Uri? =
-        prefs(context).getString(KEY_MONKEY_DIR, null)?.let(Uri::parse)
+    /** The monkey dir path, or null if the user hasn't set one. */
+    fun monkeyDir(context: Context): File? =
+        prefs(context).getString(KEY_MONKEY_DIR, null)?.let(::File)
 
-    /** Persist the chosen monkey dir and take a durable permission grant. */
-    fun setMonkeyDir(context: Context, uri: Uri) {
-        context.contentResolver.takePersistableUriPermission(
-            uri,
-            Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
-        )
-        prefs(context).edit().putString(KEY_MONKEY_DIR, uri.toString()).apply()
+    /** The todo.txt inside the monkey dir, or null if no dir is set. */
+    fun todoFile(context: Context): File? =
+        monkeyDir(context)?.let { File(it, "atp/todo/todo.txt") }
+
+    /** Persist the chosen monkey dir. */
+    fun setMonkeyDir(context: Context, path: String) {
+        prefs(context).edit().putString(KEY_MONKEY_DIR, path).apply()
     }
+
+    /** Whether we hold all-files access, required to read the monkey dir. */
+    fun hasStorageAccess(): Boolean = Environment.isExternalStorageManager()
 }
 
-/** Turn a tree URI into something readable, e.g. "primary:monkey". */
-private fun Uri.displayPath(): String =
-    lastPathSegment ?: toString()
+/**
+ * Best-effort conversion of a Storage Access Framework tree URI to a real
+ * filesystem path. Handles primary storage and named volumes (SD cards); the
+ * user only picks the folder once, and we store the resulting path.
+ */
+private fun Uri.toFilesystemPath(): String? {
+    val docId = try {
+        DocumentsContract.getTreeDocumentId(this)
+    } catch (e: IllegalArgumentException) {
+        return null
+    }
+    val (volume, relative) = docId.split(":", limit = 2).let {
+        it[0] to it.getOrElse(1) { "" }
+    }
+    val base = if (volume.equals("primary", ignoreCase = true)) {
+        Environment.getExternalStorageDirectory().absolutePath
+    } else {
+        "/storage/$volume"
+    }
+    return if (relative.isEmpty()) base else "$base/$relative"
+}
 
 /** The settings page: launcher configuration. */
 @Composable
@@ -69,13 +99,24 @@ fun SettingsPage() {
     val context = LocalContext.current
     val colors = UglyTheme.colors
     var monkeyDir by remember { mutableStateOf(Settings.monkeyDir(context)) }
+    // Recheck on resume: the user grants all-files access on a system screen.
+    var hasAccess by remember { mutableStateOf(Settings.hasStorageAccess()) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) hasAccess = Settings.hasStorageAccess()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     val picker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
     ) { uri ->
-        if (uri != null) {
-            Settings.setMonkeyDir(context, uri)
-            monkeyDir = uri
+        val path = uri?.toFilesystemPath()
+        if (path != null) {
+            Settings.setMonkeyDir(context, path)
+            monkeyDir = File(path)
         }
     }
 
@@ -97,9 +138,21 @@ fun SettingsPage() {
         SettingGroup {
             SettingRow(
                 label = "monkey dir",
-                value = monkeyDir?.displayPath() ?: "tap to choose a folder",
+                value = monkeyDir?.path ?: "tap to choose a folder",
                 isSet = monkeyDir != null,
-                onClick = { picker.launch(monkeyDir) },
+                onClick = { picker.launch(null) },
+            )
+            SettingRow(
+                label = "all-files access",
+                value = if (hasAccess) "granted" else "tap to grant",
+                isSet = hasAccess,
+                onClick = {
+                    val intent = Intent(
+                        AndroidSettings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                        Uri.parse("package:${context.packageName}"),
+                    )
+                    context.startActivity(intent)
+                },
             )
         }
     }

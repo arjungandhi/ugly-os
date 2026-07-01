@@ -43,6 +43,10 @@ APK output: `launcher/app/build/outputs/apk/debug/app-debug.apk`
 - The two todo pages read `monkey_dir/atp/todo/todo.txt` (read-only for now). The
   "todo" page shows every task *except* those tagged `@pattern`; the "work" page
   shows only `@pattern` tasks. Both are backed by the same `TodoPage` component.
+- Todo reads use direct file I/O and a `FileObserver` on the todo dir, so edits
+  synced in by Syncthing show up live; pages also reload on resume.
 - Settings persist in SharedPreferences (`ugly_launcher`). The "monkey dir" is the
-  directory the launcher reads its data from; it starts unset and is chosen via the
-  system folder picker (Storage Access Framework), so the grant survives reboots.
+  directory the launcher reads its data from, stored as a plain path. It starts
+  unset; the folder is picked once via the system picker (converted to a real path).
+  Reading arbitrary paths needs all-files access (`MANAGE_EXTERNAL_STORAGE`), granted
+  once from the settings page.

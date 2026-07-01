@@ -2,6 +2,13 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <!--
+      The monkey dir (and its todo.txt) is a real path we read directly and
+      watch with FileObserver, kept in sync by Syncthing. That needs broad
+      filesystem access; the user grants it once via the all-files screen.
+    -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+
+    <!--
       Lets us enumerate launchable apps without the QUERY_ALL_PACKAGES
       permission. A launcher legitimately needs to see apps that expose a
       MAIN/LAUNCHER activity.
