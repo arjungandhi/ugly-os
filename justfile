@@ -15,6 +15,12 @@ build:
 install:
     cd {{launcher}} && ./gradlew installDebug
 
+# Watch sources and redeploy the launcher on every change (no true hot reload).
+dev:
+    cd {{launcher}} && watchexec --restart --exts kt,xml \
+        --watch app/src --watch common/src \
+        -- './gradlew installDebug && adb shell am start -n com.uglyos.launcher/.MainActivity'
+
 # Run the launcher unit tests.
 test:
     cd {{launcher}} && ./gradlew test

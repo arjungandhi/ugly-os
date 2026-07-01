@@ -9,8 +9,13 @@ Run from the repo root:
 ```
 just build      # build debug APK
 just install    # build + install to connected device
+just dev        # watch sources, reinstall + relaunch on change
 just test       # run unit tests
 ```
+
+`just dev` requires `watchexec`. It is not true hot reload — Compose Live Edit
+is Android Studio only — but it reinstalls and relaunches on every `.kt`/`.xml`
+change (incremental, usually a few seconds).
 
 APK output: `launcher/app/build/outputs/apk/debug/app-debug.apk`
 

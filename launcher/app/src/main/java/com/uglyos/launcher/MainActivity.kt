@@ -85,12 +85,19 @@ fun Home() {
             }
         }
     ) { padding ->
-        // Blank home for now — the canvas we'll build the real UI on.
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-        )
+        ) {
+            DateTimeWidget(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp)
+                    .padding(top = 48.dp)
+            )
+        }
     }
 
     if (showDrawer) {
