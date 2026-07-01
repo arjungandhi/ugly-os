@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -202,7 +203,7 @@ fun TodoPage(title: String, filter: (Task) -> Boolean) {
         modifier = Modifier
             .fillMaxSize()
             .padding(horizontal = 20.dp)
-            .padding(top = 48.dp),
+            .padding(top = 48.dp, bottom = 40.dp),
     ) {
         Text(
             text = title,
@@ -218,9 +219,9 @@ fun TodoPage(title: String, filter: (Task) -> Boolean) {
             TodoState.NoAccess -> Hint("grant all-files access in settings")
             TodoState.NotFound -> Hint("no todo.txt found in monkey dir")
             is TodoState.Loaded -> {
-                AddRow(onClick = { editing = TaskEdit(index = null, initial = "") })
                 if (s.tasks.isEmpty()) {
                     Hint("no tasks")
+                    Spacer(Modifier.weight(1f))
                 } else {
                     LazyColumn(
                         modifier = Modifier.fillMaxWidth().weight(1f),
@@ -235,6 +236,10 @@ fun TodoPage(title: String, filter: (Task) -> Boolean) {
                         }
                     }
                 }
+                // "add task" is pinned to the bottom, in thumb reach, split from
+                // the scrolling list by a hairline.
+                Box(Modifier.fillMaxWidth().height(1.dp).background(colors.subtle))
+                AddRow(onClick = { editing = TaskEdit(index = null, initial = "") })
             }
         }
     }

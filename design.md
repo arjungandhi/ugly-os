@@ -162,6 +162,28 @@ quiet and mechanical, like the hardware it's pretending to be.
 - state changes (a task completing, the clock ticking) should feel like a
   segment flipping, not a celebration. no confetti, no springy overshoot.
 
+## reach
+
+this is a phone, held in one hand. the top of a tall screen is a two-handed
+stretch; the bottom is where the thumb already rests. so **the things you touch
+live low, and the things you read live high.**
+
+- **actions gravitate to the bottom.** the primary control — `add task`, a
+  compose button, a confirm — sits pinned near the bottom edge, in the thumb
+  arc, not floating at the top. if a screen has one action, it belongs down there.
+- **the top is for reading, not reaching.** titles, the clock, section labels
+  and status are fine up high — you look at them, you don't tap them. don't strand
+  a frequently-tapped control at the top just to balance the layout.
+- **pinned, not scrolled away.** a bottom action stays fixed while the list
+  between it and the title scrolls, split from the list by a hairline so it reads
+  as a footer, not the last row. give it clearance from the page indicator and
+  the system nav (a bottom inset / ~40dp).
+- **sheets rise from the bottom** for the same reason — the editor, the drawer,
+  any modal enters from the edge the thumb owns. (`ModalBottomSheet`, the app
+  drawer's swipe-up.)
+
+reading flows top-to-bottom; reach flows bottom-up. a good screen honors both.
+
 ## applying it — per screen
 
 the anchor is done. here's the direction for the rest so they catch up to it.
@@ -177,7 +199,9 @@ the anchor is done. here's the direction for the rest so they catch up to it.
   `foreground`; priority `(A)/(B)` as a colored pip or badge (`error`/`warning`);
   completed tasks drop to `mutedForeground` with `success` marking done.
   projects/contexts, if shown, are quiet — muted, or one spare hue, never a
-  rainbow. empty state is a single dimmed lowercase line: `no tasks`.
+  rainbow. empty state is a single dimmed lowercase line: `no tasks`. the title
+  reads up top; `add task` is pinned low in thumb reach (see **reach**), and the
+  editor rises as a bottom sheet.
 - **settings** — the most utilitarian screen; keep it flattest. a `settings`
   title, grouped rows in a `surface` card, lowercase labels, values in
   `mutedForeground`, a `subtle` chevron. no accent unless something is actively
@@ -193,5 +217,7 @@ before you ship a screen, check:
 - [ ] is our chrome lowercase, and are UPPERCASE labels reserved for signposts?
 - [ ] is everything on the 4dp grid, with baselines and dots that actually line
       up? (scuffed is a voice, not an excuse.)
+- [ ] is the thing you tap most within thumb reach at the bottom, with reading
+      up top? (reach flows bottom-up.)
 
-if all five pass, it's ugly in the right way.
+if all six pass, it's ugly in the right way.
