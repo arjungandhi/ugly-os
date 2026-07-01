@@ -33,4 +33,6 @@ dependencies {
     api("androidx.compose.runtime:runtime")
     api("androidx.compose.ui:ui")
     api("androidx.compose.material3:material3")
+
+    testImplementation("junit:junit:4.13.2")
 }
