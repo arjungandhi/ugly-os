@@ -247,6 +247,62 @@ private fun webFallback(query: String): List<SearchResult> = listOf(
     },
 )
 
+/** Resolve a contact lookup key back to its current display name, or null if gone. */
+private fun resolveContactName(context: Context, lookup: String): String? {
+    if (!hasContactsPermission(context)) return null
+    val uri = Uri.withAppendedPath(ContactsContract.Contacts.CONTENT_LOOKUP_URI, lookup)
+    return context.contentResolver
+        .query(uri, arrayOf(ContactsContract.Contacts.DISPLAY_NAME), null, null, null)
+        ?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
+}
+
+/**
+ * The empty-query screen: your most-used apps, contacts and settings, ranked by
+ * raw frecency so an empty box is a one-tap path to what you actually open, not
+ * a dead end. Each stored key is resolved back to a live result; keys that no
+ * longer resolve (uninstalled app, deleted contact) drop out silently.
+ */
+private fun recentResults(context: Context, apps: List<AppInfo>, limit: Int = 6): List<SearchResult> {
+    val frecency = Frecency.scores(context)
+    if (frecency.isEmpty()) return emptyList()
+    val byPackage = apps.associateBy { it.packageName }
+    return frecency.entries
+        .sortedByDescending { it.value }
+        .mapNotNull { (key, _) ->
+            when {
+                key.startsWith("app:") -> {
+                    val app = byPackage[key.removePrefix("app:")] ?: return@mapNotNull null
+                    SearchResult(app.label, ResultSource.APP.label, ResultSource.APP, 0) {
+                        launchApp(it, app.packageName)
+                    }
+                }
+                key.startsWith("setting:") -> {
+                    val action = key.removePrefix("setting:")
+                    val entry = SETTING_ENTRIES.firstOrNull { it.action == action } ?: return@mapNotNull null
+                    SearchResult(entry.label, ResultSource.SETTING.label, ResultSource.SETTING, 0) { ctx ->
+                        try {
+                            ctx.startActivity(Intent(entry.action))
+                        } catch (e: ActivityNotFoundException) {
+                            ctx.startActivity(Intent(AndroidSettings.ACTION_SETTINGS))
+                        }
+                        Frecency.record(ctx, "setting:$action")
+                    }
+                }
+                key.startsWith("contact:") -> {
+                    val lookup = key.removePrefix("contact:")
+                    val name = resolveContactName(context, lookup) ?: return@mapNotNull null
+                    val contactUri = Uri.withAppendedPath(ContactsContract.Contacts.CONTENT_LOOKUP_URI, lookup)
+                    SearchResult(name, ResultSource.CONTACT.label, ResultSource.CONTACT, 0) { ctx ->
+                        ctx.startActivity(Intent(Intent.ACTION_VIEW, contactUri))
+                        Frecency.record(ctx, "contact:$lookup")
+                    }
+                }
+                else -> null
+            }
+        }
+        .take(limit)
+}
+
 /**
  * Fan the query out to every provider, merge, and rank globally so the single
  * best hit — across apps, settings, contacts and web — leads the list. Ties
@@ -307,7 +363,7 @@ fun SearchPage(isActive: Boolean) {
     LaunchedEffect(query, hasContacts, apps) {
         val q = query.trim()
         if (q.isEmpty()) {
-            results = emptyList()
+            results = withContext(Dispatchers.IO) { recentResults(context, apps) }
         } else {
             delay(120) // debounce keystrokes
             results = withContext(Dispatchers.IO) { runSearch(context, apps, q) }
@@ -334,6 +390,22 @@ fun SearchPage(isActive: Boolean) {
         )
 
         LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            if (query.trim().isEmpty()) {
+                // Empty box: your most-used things, flat and all-grey — nothing is
+                // "the answer" yet, so no accent top hit and no per-source grouping.
+                if (results.isEmpty()) {
+                    item { Hint("type to search apps, contacts, settings") }
+                } else {
+                    item { SectionHeader("recent") }
+                    items(results) { result ->
+                        ResultRow(result.title, result.subtitle) {
+                            keyboard?.hide()
+                            result.onSelect(context)
+                        }
+                    }
+                }
+                return@LazyColumn
+            }
             val topHit = results.firstOrNull()
             if (topHit != null) {
                 item { SectionHeader("top hit") }
@@ -407,6 +479,18 @@ private fun SearchField(
             inner()
         }
     }
+}
+
+/** A muted, lowercase line for when there's nothing to list yet. */
+@Composable
+private fun Hint(text: String) {
+    Text(
+        text = text,
+        color = UglyTheme.colors.mutedForeground,
+        fontSize = 13.sp,
+        fontFamily = FontFamily.Monospace,
+        modifier = Modifier.padding(start = 16.dp, top = 8.dp),
+    )
 }
 
 /**
