@@ -24,3 +24,7 @@ dev:
 # Run the launcher unit tests.
 test:
     cd {{launcher}} && ./gradlew test
+
+# Run Android lint on the launcher.
+lint:
+    cd {{launcher}} && ./gradlew lint
