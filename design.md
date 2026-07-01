@@ -197,7 +197,11 @@ reading flows top-to-bottom; reach flows bottom-up. a good screen honors both.
   completed tasks drop to `mutedForeground` with `success` marking done.
   contexts/tags are quiet — muted, never a rainbow. empty state is a single
   dimmed lowercase line: `no tasks`. title reads up top; `add task` is pinned
-  low in thumb reach (see **reach**); the editor rises as a bottom sheet.
+  low in thumb reach (see **reach**); the editor rises as a bottom sheet. don't
+  make people type syntax — priority and due are tap-set (aurora pips, relative
+  chips + a themed date picker), and the raw `(A)`/`due:` line is assembled for
+  them. the scoping `@context` of a page is hidden on its rows and re-attached
+  on save, not repeated.
 - **settings** — the most utilitarian screen; keep it flattest. a `settings`
   title, grouped rows in a `surface` card, lowercase labels, values in
   `mutedForeground`, a `subtle` chevron. no accent unless something is actively

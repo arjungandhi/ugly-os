@@ -8,6 +8,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -22,9 +24,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDefaults
+import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -65,10 +72,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.time.DayOfWeek
+import java.time.Instant
 import java.time.LocalDate
+import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle as JavaTextStyle
 import java.time.temporal.ChronoUnit
+import java.time.temporal.TemporalAdjusters
 import java.util.Locale
 
 /** A task paired with its line index in the file, so edits can target the right line. */
@@ -162,7 +173,7 @@ private fun watchDir(dir: File, onChange: () -> Unit): FileObserver {
 }
 
 /** A pending add (index null) or edit of an existing line, driving the editor sheet. */
-private data class TaskEdit(val index: Int?, val initial: String)
+private data class TaskEdit(val index: Int?, val task: Task)
 
 /**
  * An interactive todo.txt list page. [filter] narrows which tasks appear so the
@@ -245,7 +256,7 @@ fun TodoPage(title: String, hiddenContext: String? = null, filter: (Task) -> Boo
                                 task = item.task,
                                 hiddenContext = hiddenContext,
                                 onComplete = { mutate { completeTask(context, item.index) } },
-                                onEdit = { editing = TaskEdit(item.index, item.task.format()) },
+                                onEdit = { editing = TaskEdit(item.index, item.task) },
                             )
                         }
                     }
@@ -253,7 +264,7 @@ fun TodoPage(title: String, hiddenContext: String? = null, filter: (Task) -> Boo
                 // "add task" is pinned to the bottom, in thumb reach, split from
                 // the scrolling list by a hairline.
                 Box(Modifier.fillMaxWidth().height(1.dp).background(colors.subtle))
-                AddRow(onClick = { editing = TaskEdit(index = null, initial = "") })
+                AddRow(onClick = { editing = TaskEdit(index = null, task = Task()) })
             }
         }
     }
@@ -261,14 +272,18 @@ fun TodoPage(title: String, hiddenContext: String? = null, filter: (Task) -> Boo
     editing?.let { edit ->
         TaskSheet(
             edit = edit,
+            hiddenContext = hiddenContext,
             onDismiss = { editing = null },
-            onSave = { line ->
-                val trimmed = line.trim()
+            onSave = { task ->
+                // Re-attach the page's scoping context (hidden in the editor) so a
+                // work task stays a work task. A now-empty description means the
+                // task was cleared: skip the add, or delete the existing line.
+                val scoped = withScopingContext(task.format(), hiddenContext)
                 mutate {
-                    if (edit.index == null) {
-                        if (trimmed.isNotEmpty()) addTask(context, withScopingContext(trimmed, hiddenContext))
-                    } else {
-                        updateTask(context, edit.index, trimmed)
+                    when {
+                        edit.index == null -> if (task.description.isNotBlank()) addTask(context, scoped)
+                        task.description.isBlank() -> deleteTask(context, edit.index)
+                        else -> updateTask(context, edit.index, scoped)
                     }
                 }
                 editing = null
@@ -336,15 +351,18 @@ private fun AddRow(onClick: () -> Unit) {
  */
 @Composable
 private fun TaskRow(task: Task, hiddenContext: String?, onComplete: () -> Unit, onEdit: () -> Unit) {
+    // Top-aligned so a task that wraps to several lines keeps its dot and due
+    // badge on the first line, rather than floating them to the block's center.
     Row(
         modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalAlignment = Alignment.CenterVertically,
+        verticalAlignment = Alignment.Top,
     ) {
         CompletionDot(completed = task.completed, onClick = onComplete)
         Text(
             text = taskAnnotated(task, hiddenContext),
             fontSize = 15.sp,
+            lineHeight = 20.sp,
             fontFamily = FontFamily.Monospace,
             textDecoration = if (task.completed) TextDecoration.LineThrough else null,
             modifier = Modifier
@@ -355,7 +373,10 @@ private fun TaskRow(task: Task, hiddenContext: String?, onComplete: () -> Unit, 
     }
 }
 
-/** A hollow ring while open, a filled [success] dot once done — the tap target. */
+/**
+ * A hollow ring while open, a filled [success] dot once done — the tap target.
+ * Sized to [DOT_GUTTER] so it aligns to the first text line in a top-aligned row.
+ */
 @Composable
 private fun CompletionDot(completed: Boolean, onClick: () -> Unit) {
     val colors = UglyTheme.colors
@@ -383,6 +404,7 @@ private fun DueBadge(task: Task) {
         text = info.label,
         color = info.color,
         fontSize = 13.sp,
+        lineHeight = 20.sp,
         fontFamily = FontFamily.Monospace,
     )
 }
@@ -444,22 +466,49 @@ private fun taskAnnotated(task: Task, hiddenContext: String?): AnnotatedString {
 }
 
 /**
- * The add/edit sheet: one monospace field holding the raw todo.txt line, so
- * priority, `due:`, contexts and tags are all editable inline. Save commits;
- * an existing line also gets a [error]-colored delete.
+ * The add/edit sheet. Rather than make you type todo.txt syntax, it breaks the
+ * task into parts: a plain description field (where `@context`/`+project` still
+ * live as words), tap-to-set priority pips, and due-date chips backed by a date
+ * picker. On save it reassembles the `(A) … due:…` line for you. An existing
+ * task also gets an [error]-colored delete.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun TaskSheet(
     edit: TaskEdit,
+    hiddenContext: String?,
     onDismiss: () -> Unit,
-    onSave: (String) -> Unit,
+    onSave: (Task) -> Unit,
     onDelete: (() -> Unit)?,
 ) {
     val colors = UglyTheme.colors
     val sheetState = rememberModalBottomSheetState()
     val focusRequester = remember { FocusRequester() }
-    var line by remember(edit) { mutableStateOf(edit.initial) }
+
+    // Edit the parts we surface as controls; everything else on the task
+    // (completion, dates, other tags) is carried through untouched on save. The
+    // scoping context is hidden here and re-attached by the caller; due lives in
+    // its own control, so it's stripped from the editable text.
+    val original = edit.task
+    var description by remember(edit) {
+        mutableStateOf(original.editableText(setOfNotNull(hiddenContext)))
+    }
+    var priority by remember(edit) { mutableStateOf(original.priority) }
+    var due by remember(edit) { mutableStateOf(original.due) }
+    var showPicker by remember(edit) { mutableStateOf(false) }
+
+    // Rebuild the task from the original, overriding only what the sheet edits.
+    // The typed text is re-cleaned so a hand-typed due: can't duplicate the one
+    // from the due control.
+    fun assemble(): Task {
+        val body = Task(description = description.trim()).editableText()
+        val withDue = when {
+            due == null -> body
+            body.isEmpty() -> "due:$due"
+            else -> "$body due:$due"
+        }
+        return original.copy(priority = priority, description = withDue)
+    }
 
     LaunchedEffect(edit) {
         kotlinx.coroutines.delay(100)
@@ -494,9 +543,8 @@ private fun TaskSheet(
                     .padding(horizontal = 16.dp, vertical = 14.dp),
             ) {
                 BasicTextField(
-                    value = line,
-                    onValueChange = { line = it },
-                    singleLine = true,
+                    value = description,
+                    onValueChange = { description = it },
                     textStyle = TextStyle(
                         color = colors.foreground,
                         fontSize = 18.sp,
@@ -504,14 +552,14 @@ private fun TaskSheet(
                     ),
                     cursorBrush = SolidColor(colors.accent),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                    keyboardActions = KeyboardActions(onDone = { onSave(line) }),
+                    keyboardActions = KeyboardActions(onDone = { onSave(assemble()) }),
                     modifier = Modifier
                         .fillMaxWidth()
                         .focusRequester(focusRequester),
                 ) { inner ->
-                    if (line.isEmpty()) {
+                    if (description.isEmpty()) {
                         Text(
-                            text = "(A) buy milk @errands due:2026-07-01",
+                            text = "what needs doing",
                             color = colors.mutedForeground,
                             fontSize = 18.sp,
                             fontFamily = FontFamily.Monospace,
@@ -520,17 +568,177 @@ private fun TaskSheet(
                     inner()
                 }
             }
-            SheetAction(label = "save", color = colors.accent, onClick = { onSave(line) })
+
+            PrioritySection(
+                selected = priority,
+                extra = original.priority?.takeIf { it !in 'A'..'C' },
+            ) { priority = it }
+            DueSection(
+                due = due,
+                onPick = { due = it },
+                onOpenPicker = { showPicker = true },
+            )
+
+            SheetAction(label = "save", color = colors.accent, onClick = { onSave(assemble()) })
             if (onDelete != null) {
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .height(1.dp)
-                        .background(colors.subtle)
-                )
+                Box(Modifier.fillMaxWidth().height(1.dp).background(colors.subtle))
                 SheetAction(label = "delete", color = colors.error, onClick = onDelete)
             }
         }
+    }
+
+    if (showPicker) {
+        DuePickerDialog(
+            initial = due,
+            onDismiss = { showPicker = false },
+            onConfirm = { due = it; showPicker = false },
+        )
+    }
+}
+
+/**
+ * Tap-to-set priority: `none` plus `a`/`b`/`c`, each in its aurora color. An
+ * [extra] priority (a `(D)`–`(Z)` set by another tool) is offered too, so
+ * touching the control can't strand it as unreachable.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun PrioritySection(selected: Char?, extra: Char?, onSelect: (Char?) -> Unit) {
+    val colors = UglyTheme.colors
+    LabeledSection("priority") {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            val options = listOf<Char?>(null, 'A', 'B', 'C') + listOfNotNull(extra)
+            options.forEach { p ->
+                Chip(
+                    label = p?.lowercaseChar()?.toString() ?: "none",
+                    selected = selected == p,
+                    color = p?.let { priorityColor(it, colors) } ?: colors.mutedForeground,
+                    onClick = { onSelect(p) },
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Tap-to-set due date: `none`, a few relative presets (today/tomorrow/…), and a
+ * `pick` chip that opens the calendar — which also shows the chosen date when
+ * it's not one of the presets.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun DueSection(due: LocalDate?, onPick: (LocalDate?) -> Unit, onOpenPicker: () -> Unit) {
+    val colors = UglyTheme.colors
+    val today = remember { LocalDate.now() }
+    val presets = remember(today) {
+        listOf(
+            "today" to today,
+            "tomorrow" to today.plusDays(1),
+            "weekend" to today.with(TemporalAdjusters.nextOrSame(DayOfWeek.SATURDAY)),
+            "next week" to today.plusWeeks(1),
+        )
+    }
+    // Only the first matching preset lights up, so a date two presets share
+    // (today == weekend on a Saturday) doesn't highlight both chips.
+    val matchIndex = presets.indexOfFirst { it.second == due }
+    val isCustom = due != null && matchIndex < 0
+
+    LabeledSection("due") {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Chip("none", selected = due == null, color = colors.mutedForeground) { onPick(null) }
+            presets.forEachIndexed { i, (label, date) ->
+                Chip(label, selected = i == matchIndex, color = colors.accent) { onPick(date) }
+            }
+            Chip(
+                label = if (isCustom) MONTH_DAY.format(due).lowercase() else "pick",
+                selected = isCustom,
+                color = colors.accent,
+                onClick = onOpenPicker,
+            )
+        }
+    }
+}
+
+/** A micro-label signpost over a control, echoing the section labels elsewhere. */
+@Composable
+private fun LabeledSection(label: String, content: @Composable () -> Unit) {
+    val colors = UglyTheme.colors
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(
+            text = label.uppercase(),
+            color = colors.mutedForeground,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 2.sp,
+            fontFamily = FontFamily.Monospace,
+        )
+        content()
+    }
+}
+
+/** A small selectable pill: [color] tint + border when [selected], else quiet. */
+@Composable
+private fun Chip(label: String, selected: Boolean, color: Color, onClick: () -> Unit) {
+    val colors = UglyTheme.colors
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(if (selected) color.copy(alpha = 0.18f) else colors.surfaceElevated)
+            .border(1.dp, if (selected) color else colors.subtle, RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+    ) {
+        Text(
+            text = label,
+            color = if (selected) color else colors.mutedForeground,
+            fontSize = 14.sp,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+            fontFamily = FontFamily.Monospace,
+        )
+    }
+}
+
+/** The calendar dialog behind the `pick` chip, themed to the nord palette. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DuePickerDialog(initial: LocalDate?, onDismiss: () -> Unit, onConfirm: (LocalDate) -> Unit) {
+    val colors = UglyTheme.colors
+    val state = rememberDatePickerState(
+        initialSelectedDateMillis = initial?.atStartOfDay(ZoneOffset.UTC)?.toInstant()?.toEpochMilli(),
+    )
+    val pickerColors = DatePickerDefaults.colors(
+        containerColor = colors.surface,
+        titleContentColor = colors.mutedForeground,
+        headlineContentColor = colors.foreground,
+        weekdayContentColor = colors.mutedForeground,
+        subheadContentColor = colors.mutedForeground,
+        yearContentColor = colors.mutedForeground,
+        currentYearContentColor = colors.foreground,
+        selectedYearContentColor = colors.background,
+        selectedYearContainerColor = colors.accent,
+        dayContentColor = colors.foreground,
+        selectedDayContentColor = colors.background,
+        selectedDayContainerColor = colors.accent,
+        todayContentColor = colors.accent,
+        todayDateBorderColor = colors.accent,
+    )
+    DatePickerDialog(
+        onDismissRequest = onDismiss,
+        colors = pickerColors,
+        confirmButton = {
+            TextButton(onClick = {
+                state.selectedDateMillis?.let {
+                    onConfirm(Instant.ofEpochMilli(it).atZone(ZoneOffset.UTC).toLocalDate())
+                }
+            }) { Text("ok", color = colors.accent, fontFamily = FontFamily.Monospace) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("cancel", color = colors.mutedForeground, fontFamily = FontFamily.Monospace)
+            }
+        },
+    ) {
+        DatePicker(state = state, colors = pickerColors, showModeToggle = false, title = null)
     }
 }
 

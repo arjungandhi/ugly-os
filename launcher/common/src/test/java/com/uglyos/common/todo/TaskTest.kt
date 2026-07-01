@@ -34,9 +34,14 @@ class TaskTest {
         assertEquals(listOf("dmv"), t.contexts)
     }
 
-    @Test fun displayTextDropsKeyValueTags() {
+    @Test fun displayTextDropsDueTag() {
         val t = Task.parse("buy milk @errands due:2026-07-01")!!
         assertEquals("buy milk @errands", t.displayText())
+    }
+
+    @Test fun displayTextKeepsNonDueColonText() {
+        val t = Task.parse("standup at 9:30 @work due:2026-07-01")!!
+        assertEquals("standup at 9:30 @work", t.displayText())
     }
 
     @Test fun displayTextHidesNamedContextsButKeepsOthers() {
@@ -52,6 +57,21 @@ class TaskTest {
     @Test fun displayTextFallsBackToRawWhenNothingLeft() {
         val t = Task.parse("@pattern")!!
         assertEquals("@pattern", t.displayText(hideContexts = setOf("pattern")))
+    }
+
+    @Test fun displayTextFallsBackWhenOnlyDue() {
+        val t = Task.parse("due:2026-07-01")!!
+        assertEquals("due:2026-07-01", t.displayText())
+    }
+
+    @Test fun editableTextStripsDueButKeepsRest() {
+        val t = Task.parse("buy milk @errands due:2026-07-01")!!
+        assertEquals("buy milk @errands", t.editableText())
+    }
+
+    @Test fun editableTextIsBlankWhenOnlyDue() {
+        val t = Task.parse("due:2026-07-01")!!
+        assertEquals("", t.editableText())
     }
 
     @Test fun blankLineParsesToNull() {

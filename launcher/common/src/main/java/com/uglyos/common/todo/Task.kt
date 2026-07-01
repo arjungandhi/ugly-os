@@ -53,22 +53,35 @@ data class Task(
         }
 
     /**
-     * The [description] cleaned up for showing to a human: `key:value` tags
-     * (e.g. `due:2026-06-30`) dropped, since they're metadata surfaced elsewhere,
-     * along with any `@context` named in [hideContexts] — useful when a view is
-     * already scoped to a context and shouldn't repeat it on every row. Projects
-     * and remaining contexts stay inline; runs of whitespace collapse to one
-     * space. Falls back to the raw [description] if nothing would be left.
+     * The [description] cleaned up for showing to a human: the `due:` tag dropped
+     * (it's surfaced separately as a badge/control), along with any `@context`
+     * named in [hideContexts] — useful when a view is already scoped to a context
+     * and shouldn't repeat it on every row. Projects and remaining contexts stay
+     * inline, and non-`due` `key:value` text (e.g. a `9:30` time) is left alone;
+     * runs of whitespace collapse to one space. Falls back to the raw
+     * [description] if nothing would be left (a row is never blank).
      */
-    fun displayText(hideContexts: Set<String> = emptySet()): String {
-        var text = TAG_REGEX.replace(description, "")
+    fun displayText(hideContexts: Set<String> = emptySet()): String =
+        strippedDescription(hideContexts).ifEmpty { description }
+
+    /**
+     * Like [displayText], but returns an empty string rather than falling back to
+     * the raw [description]. For seeding an editor whose `due:` lives in its own
+     * control: blank is fine there, and the fallback would smuggle a `due:` tag
+     * back into the text and duplicate it on save.
+     */
+    fun editableText(hideContexts: Set<String> = emptySet()): String =
+        strippedDescription(hideContexts)
+
+    /** [description] with the `due:` tag and any [hideContexts] removed, collapsed. */
+    private fun strippedDescription(hideContexts: Set<String>): String {
+        var text = DUE_REGEX.replace(description, "")
         if (hideContexts.isNotEmpty()) {
             text = CONTEXT_REGEX.replace(text) { m ->
                 if (m.groupValues[1] in hideContexts) "" else m.value
             }
         }
-        val cleaned = text.replace(WHITESPACE_REGEX, " ").trim()
-        return cleaned.ifEmpty { description }
+        return text.replace(WHITESPACE_REGEX, " ").trim()
     }
 
     /** This task marked done, stamping [on] as the completion date. */
@@ -96,6 +109,7 @@ data class Task(
         private val PROJECT_REGEX = Regex("""(?:^|\s)\+(\S+)""")
         private val CONTEXT_REGEX = Regex("""(?:^|\s)@(\S+)""")
         private val TAG_REGEX = Regex("""(?:^|\s)([^\s:]+):([^\s:]+)""")
+        private val DUE_REGEX = Regex("""(?:^|\s)due:\S+""")
         private val WHITESPACE_REGEX = Regex("""\s+""")
 
         private fun Regex.findValues(input: String): List<String> =
