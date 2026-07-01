@@ -3,6 +3,7 @@ package com.uglyos.launcher
 import android.content.Context
 import android.os.FileObserver
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -38,13 +39,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
@@ -59,6 +65,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.time.LocalDate
+import java.time.format.DateTimeFormatter
+import java.time.format.TextStyle as JavaTextStyle
+import java.time.temporal.ChronoUnit
+import java.util.Locale
 
 /** A task paired with its line index in the file, so edits can target the right line. */
 private data class IndexedTask(val index: Int, val task: Task)
@@ -210,7 +220,7 @@ fun TodoPage(title: String, filter: (Task) -> Boolean) {
             is TodoState.Loaded -> {
                 AddRow(onClick = { editing = TaskEdit(index = null, initial = "") })
                 if (s.tasks.isEmpty()) {
-                    Hint("nothing here")
+                    Hint("no tasks")
                 } else {
                     LazyColumn(
                         modifier = Modifier.fillMaxWidth().weight(1f),
@@ -262,7 +272,13 @@ private fun Hint(text: String) {
     )
 }
 
-/** A tappable "add task" affordance above the list. */
+/** The gutter the completion dots (and the add "+") sit in, so rows align. */
+private val DOT_GUTTER = 20.dp
+
+/**
+ * A tappable "add task" affordance above the list. Its "+" sits in the same
+ * [DOT_GUTTER] as the task dots, so the column of markers lines up.
+ */
 @Composable
 private fun AddRow(onClick: () -> Unit) {
     val colors = UglyTheme.colors
@@ -271,16 +287,18 @@ private fun AddRow(onClick: () -> Unit) {
             .fillMaxWidth()
             .clickable(onClick = onClick)
             .padding(vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            text = "+",
-            color = colors.accent,
-            fontSize = 16.sp,
-            fontWeight = FontWeight.Bold,
-            fontFamily = FontFamily.Monospace,
-        )
+        Box(modifier = Modifier.size(DOT_GUTTER), contentAlignment = Alignment.Center) {
+            Text(
+                text = "+",
+                color = colors.accent,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.Monospace,
+            )
+        }
         Text(
             text = "add task",
             color = colors.mutedForeground,
@@ -291,43 +309,22 @@ private fun AddRow(onClick: () -> Unit) {
 }
 
 /**
- * One task line: a tappable completion dot, an optional priority badge, then the
- * description. Tapping the dot completes; tapping the text opens the editor.
+ * One task line: a tappable completion dot in the gutter, the description, and a
+ * due badge on the right. Aurora carries the state — a semantic priority badge
+ * folded into the text (`(A)` error, `(B)` warning), quiet `mutedForeground`
+ * `@context`/`+project` tokens, a `success` dot for done, and an urgency-colored
+ * due date. Tapping the dot completes; tapping the text opens the editor.
  */
 @Composable
 private fun TaskRow(task: Task, onComplete: () -> Unit, onEdit: () -> Unit) {
-    val colors = UglyTheme.colors
     Row(
         modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(
-            modifier = Modifier
-                .size(18.dp)
-                .clip(CircleShape)
-                .clickable(onClick = onComplete),
-            contentAlignment = Alignment.Center,
-        ) {
-            Box(
-                Modifier
-                    .size(14.dp)
-                    .clip(CircleShape)
-                    .background(if (task.completed) colors.success else colors.subtle)
-            )
-        }
-        task.priority?.let {
-            Text(
-                text = "($it)",
-                color = colors.accent,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Bold,
-                fontFamily = FontFamily.Monospace,
-            )
-        }
+        CompletionDot(completed = task.completed, onClick = onComplete)
         Text(
-            text = task.description,
-            color = if (task.completed) colors.mutedForeground else colors.foreground,
+            text = taskAnnotated(task),
             fontSize = 15.sp,
             fontFamily = FontFamily.Monospace,
             textDecoration = if (task.completed) TextDecoration.LineThrough else null,
@@ -335,7 +332,105 @@ private fun TaskRow(task: Task, onComplete: () -> Unit, onEdit: () -> Unit) {
                 .weight(1f)
                 .clickable(onClick = onEdit),
         )
+        DueBadge(task)
     }
+}
+
+/** A hollow ring while open, a filled [success] dot once done — the tap target. */
+@Composable
+private fun CompletionDot(completed: Boolean, onClick: () -> Unit) {
+    val colors = UglyTheme.colors
+    Box(
+        modifier = Modifier
+            .size(DOT_GUTTER)
+            .clip(CircleShape)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (completed) {
+            Box(Modifier.size(14.dp).clip(CircleShape).background(colors.success))
+        } else {
+            Box(Modifier.size(14.dp).clip(CircleShape).border(1.5.dp, colors.subtle, CircleShape))
+        }
+    }
+}
+
+/** The one word of urgency for a due date, or nothing. Suppressed on done tasks. */
+@Composable
+private fun DueBadge(task: Task) {
+    if (task.completed) return
+    val info = dueInfo(task.due) ?: return
+    Text(
+        text = info.label,
+        color = info.color,
+        fontSize = 13.sp,
+        fontFamily = FontFamily.Monospace,
+    )
+}
+
+/** A due date rendered as a terse label plus the aurora color that grades it. */
+private data class DueInfo(val label: String, val color: Color)
+
+@Composable
+private fun dueInfo(due: LocalDate?): DueInfo? {
+    if (due == null) return null
+    val colors = UglyTheme.colors
+    val days = ChronoUnit.DAYS.between(LocalDate.now(), due)
+    return when {
+        days < 0 -> DueInfo("overdue", colors.error)
+        days == 0L -> DueInfo("today", colors.warning)
+        days == 1L -> DueInfo("tomorrow", colors.warning)
+        days <= 6 -> DueInfo(
+            due.dayOfWeek.getDisplayName(JavaTextStyle.SHORT, Locale.US).lowercase(),
+            colors.mutedForeground,
+        )
+        else -> DueInfo(MONTH_DAY.format(due).lowercase(), colors.mutedForeground)
+    }
+}
+
+private val MONTH_DAY: DateTimeFormatter = DateTimeFormatter.ofPattern("MMM d", Locale.US)
+
+/** `(A)` error, `(B)` warning, anything lower a quiet secondary accent. */
+private fun priorityColor(priority: Char, colors: com.uglyos.common.theme.ThemeColors): Color =
+    when (priority) {
+        'A' -> colors.error
+        'B' -> colors.warning
+        else -> colors.accentMuted
+    }
+
+/**
+ * The task text as shown: a leading semantic priority badge (on open tasks), the
+ * description with its `due:`/`key:value` metadata stripped out (surfaced as the
+ * due badge instead), and `@context`/`+project` tokens dimmed to `mutedForeground`
+ * so they read as quiet tags, not part of the sentence. User casing is untouched.
+ */
+@Composable
+private fun taskAnnotated(task: Task): AnnotatedString {
+    val colors = UglyTheme.colors
+    val done = task.completed
+    val base = if (done) colors.mutedForeground else colors.foreground
+    return buildAnnotatedString {
+        if (!done) task.priority?.let { p ->
+            withStyle(SpanStyle(color = priorityColor(p, colors), fontWeight = FontWeight.Bold)) {
+                append("($p) ")
+            }
+        }
+        val text = cleanDescription(task)
+        text.split(" ").forEachIndexed { i, word ->
+            if (i > 0) append(" ")
+            val color = if (word.startsWith("@") || word.startsWith("+")) colors.mutedForeground else base
+            withStyle(SpanStyle(color = color)) { append(word) }
+        }
+    }
+}
+
+/** The description with `key:value` tags (e.g. `due:`) removed; raw as fallback. */
+private fun cleanDescription(task: Task): String {
+    val cleaned = task.description
+        .replace(Regex("""(?:^|\s)[^\s:]+:[^\s:]+"""), "")
+        .replace(Regex("""\s+"""), " ")
+        .trim()
+    return cleaned.ifEmpty { task.description }
 }
 
 /**
@@ -384,7 +479,7 @@ private fun TaskSheet(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(16.dp))
+                    .clip(RoundedCornerShape(20.dp))
                     .background(colors.surfaceElevated)
                     .padding(horizontal = 16.dp, vertical = 14.dp),
             ) {
