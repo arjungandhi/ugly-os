@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -24,14 +25,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.DatePicker
-import androidx.compose.material3.DatePickerDefaults
-import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -57,10 +53,12 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -73,13 +71,13 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.time.DayOfWeek
-import java.time.Instant
 import java.time.LocalDate
-import java.time.ZoneOffset
+import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle as JavaTextStyle
 import java.time.temporal.ChronoUnit
 import java.time.temporal.TemporalAdjusters
+import java.time.temporal.WeekFields
 import java.util.Locale
 
 /** A task paired with its line index in the file, so edits can target the right line. */
@@ -698,47 +696,134 @@ private fun Chip(label: String, selected: Boolean, color: Color, onClick: () -> 
     }
 }
 
-/** The calendar dialog behind the `pick` chip, themed to the nord palette. */
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * The calendar behind the `pick` chip. Drawn by hand to match the home calendar
+ * card rather than dropping in Material's picker: an accent bullet + tracked
+ * `MONTH YEAR` header with prev/next arrows, uppercase weekday initials, and
+ * circular day cells — today outlined in `subtle`, the current selection filled
+ * `accent`. Tapping a day picks it; tapping outside dismisses.
+ */
 @Composable
 private fun DuePickerDialog(initial: LocalDate?, onDismiss: () -> Unit, onConfirm: (LocalDate) -> Unit) {
     val colors = UglyTheme.colors
-    val state = rememberDatePickerState(
-        initialSelectedDateMillis = initial?.atStartOfDay(ZoneOffset.UTC)?.toInstant()?.toEpochMilli(),
-    )
-    val pickerColors = DatePickerDefaults.colors(
-        containerColor = colors.surface,
-        titleContentColor = colors.mutedForeground,
-        headlineContentColor = colors.foreground,
-        weekdayContentColor = colors.mutedForeground,
-        subheadContentColor = colors.mutedForeground,
-        yearContentColor = colors.mutedForeground,
-        currentYearContentColor = colors.foreground,
-        selectedYearContentColor = colors.background,
-        selectedYearContainerColor = colors.accent,
-        dayContentColor = colors.foreground,
-        selectedDayContentColor = colors.background,
-        selectedDayContainerColor = colors.accent,
-        todayContentColor = colors.accent,
-        todayDateBorderColor = colors.accent,
-    )
-    DatePickerDialog(
-        onDismissRequest = onDismiss,
-        colors = pickerColors,
-        confirmButton = {
-            TextButton(onClick = {
-                state.selectedDateMillis?.let {
-                    onConfirm(Instant.ofEpochMilli(it).atZone(ZoneOffset.UTC).toLocalDate())
-                }
-            }) { Text("ok", color = colors.accent, fontFamily = FontFamily.Monospace) }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("cancel", color = colors.mutedForeground, fontFamily = FontFamily.Monospace)
+    val today = remember { LocalDate.now() }
+    val weekStart = remember { WeekFields.of(Locale.getDefault()).firstDayOfWeek }
+    var month by remember { mutableStateOf(YearMonth.from(initial ?: today)) }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .clip(RoundedCornerShape(28.dp))
+                .background(colors.surface)
+                .padding(horizontal = 20.dp, vertical = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(8.dp).clip(CircleShape).background(colors.accent))
+                Spacer(Modifier.width(12.dp))
+                Text(
+                    text = MONTH_YEAR.format(month).uppercase(Locale.getDefault()),
+                    color = colors.foreground,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                    letterSpacing = 2.sp,
+                    fontFamily = FontFamily.Monospace,
+                    modifier = Modifier.weight(1f),
+                )
+                MonthArrow("‹") { month = month.minusMonths(1) }
+                Spacer(Modifier.width(4.dp))
+                MonthArrow("›") { month = month.plusMonths(1) }
             }
-        },
+            Row(Modifier.fillMaxWidth()) {
+                for (i in 0 until 7) {
+                    Text(
+                        text = weekStart.plus(i.toLong())
+                            .getDisplayName(JavaTextStyle.NARROW, Locale.getDefault())
+                            .uppercase(Locale.getDefault()),
+                        color = colors.mutedForeground,
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+            val lead = (month.atDay(1).dayOfWeek.value - weekStart.value + 7) % 7
+            val cells = buildList<LocalDate?> {
+                repeat(lead) { add(null) }
+                for (d in 1..month.lengthOfMonth()) add(month.atDay(d))
+                while (size % 7 != 0) add(null)
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                cells.chunked(7).forEach { week ->
+                    Row(Modifier.fillMaxWidth()) {
+                        week.forEach { day ->
+                            DayPickCell(
+                                day = day,
+                                isToday = day == today,
+                                isSelected = day != null && day == initial,
+                                onClick = { day?.let(onConfirm) },
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private val MONTH_YEAR: DateTimeFormatter = DateTimeFormatter.ofPattern("MMMM yyyy", Locale.US)
+
+/** A round, tappable month-navigation chevron in the picker header. */
+@Composable
+private fun MonthArrow(glyph: String, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier.size(32.dp).clip(CircleShape).clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
     ) {
-        DatePicker(state = state, colors = pickerColors, showModeToggle = false, title = null)
+        Text(
+            text = glyph,
+            color = UglyTheme.colors.mutedForeground,
+            fontSize = 20.sp,
+            fontFamily = FontFamily.Monospace,
+        )
+    }
+}
+
+/** One day in the picker grid: empty for padding, else a circled, tappable day. */
+@Composable
+private fun DayPickCell(
+    day: LocalDate?,
+    isToday: Boolean,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier,
+) {
+    val colors = UglyTheme.colors
+    Box(
+        modifier = modifier
+            .height(40.dp)
+            .then(if (day != null) Modifier.clickable(onClick = onClick) else Modifier),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (day == null) return@Box
+        val circle = Modifier.size(36.dp).clip(CircleShape).let {
+            when {
+                isSelected -> it.background(colors.accent)
+                isToday -> it.border(1.dp, colors.subtle, CircleShape)
+                else -> it
+            }
+        }
+        Box(circle, contentAlignment = Alignment.Center) {
+            Text(
+                text = day.dayOfMonth.toString(),
+                color = if (isSelected) colors.background else colors.foreground,
+                fontSize = 14.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = if (isSelected || isToday) FontWeight.Bold else FontWeight.Normal,
+            )
+        }
     }
 }
 
