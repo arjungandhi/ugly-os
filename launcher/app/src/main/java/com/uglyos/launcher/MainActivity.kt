@@ -97,6 +97,13 @@ fun Home() {
                     .padding(horizontal = 20.dp)
                     .padding(top = 48.dp)
             )
+            QuickLaunch(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp)
+                    .padding(bottom = 96.dp)
+            )
         }
     }
 

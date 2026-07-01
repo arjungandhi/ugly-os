@@ -11,6 +11,10 @@
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
         </intent>
+        <!-- Launched by package name, so make them explicitly visible. -->
+        <package android:name="com.beeper.android" />
+        <package android:name="com.futo.platformplayer" />
+        <package android:name="com.google.android.apps.walletnfcrel" />
     </queries>
 
     <application
