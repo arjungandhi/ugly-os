@@ -62,21 +62,18 @@ class MainActivity : ComponentActivity() {
 }
 
 /**
- * The swipeable pages, left to right. The first is the home screen; add or
- * reorder entries here and the pager and indicator follow automatically.
+ * The swipeable pages, left to right. Search sits to the *left* of home, so the
+ * launcher opens on [HOME_PAGE] and a swipe left reveals search. Add or reorder
+ * pages in [Home]'s dispatch below and bump [PAGE_COUNT] to match.
  */
 private const val PATTERN_CONTEXT = "pattern"
-
-private val pages: List<@Composable () -> Unit> = listOf(
-    { HomePage() },
-    { TodoPage("todo") { PATTERN_CONTEXT !in it.contexts } },
-    { TodoPage("work") { PATTERN_CONTEXT in it.contexts } },
-    { SettingsPage() },
-)
+private const val SEARCH_PAGE = 0
+private const val HOME_PAGE = 1
+private const val PAGE_COUNT = 5
 
 @Composable
 fun Home() {
-    val pagerState = rememberPagerState { pages.size }
+    val pagerState = rememberPagerState(initialPage = HOME_PAGE) { PAGE_COUNT }
 
     Scaffold(
         containerColor = UglyTheme.colors.background,
@@ -90,11 +87,17 @@ fun Home() {
                 state = pagerState,
                 modifier = Modifier.fillMaxSize()
             ) { page ->
-                pages[page]()
+                when (page) {
+                    SEARCH_PAGE -> SearchPage(isActive = pagerState.currentPage == SEARCH_PAGE)
+                    HOME_PAGE -> HomePage()
+                    2 -> TodoPage("todo") { PATTERN_CONTEXT !in it.contexts }
+                    3 -> TodoPage("work") { PATTERN_CONTEXT in it.contexts }
+                    else -> SettingsPage()
+                }
             }
             PageIndicator(
                 currentPage = pagerState.currentPage,
-                pageCount = pages.size,
+                pageCount = PAGE_COUNT,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .padding(bottom = 24.dp)
