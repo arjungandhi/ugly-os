@@ -79,10 +79,12 @@ class MainActivity : ComponentActivity() {
  * The swipeable pages, left to right. The first is the home screen; add or
  * reorder entries here and the pager and indicator follow automatically.
  */
+private const val PATTERN_CONTEXT = "pattern"
+
 private val pages: List<@Composable () -> Unit> = listOf(
     { HomePage() },
-    { BlankPage() },
-    { BlankPage() },
+    { TodoPage("todo") { PATTERN_CONTEXT !in it.contexts } },
+    { TodoPage("work") { PATTERN_CONTEXT in it.contexts } },
     { SettingsPage() },
 )
 
@@ -168,12 +170,6 @@ fun HomePage() {
                 .padding(bottom = 96.dp)
         )
     }
-}
-
-/** Empty side page, a placeholder for future widgets. */
-@Composable
-fun BlankPage() {
-    Box(modifier = Modifier.fillMaxSize())
 }
 
 /** A row of dots marking which page is currently in view. */
