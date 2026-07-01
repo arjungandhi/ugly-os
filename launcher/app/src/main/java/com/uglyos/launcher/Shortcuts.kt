@@ -5,20 +5,19 @@ import android.content.Context
 import android.content.Intent
 import android.provider.MediaStore
 import android.widget.Toast
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -77,53 +76,57 @@ fun launchShortcut(context: Context, shortcut: Shortcut) {
     }
 }
 
-/** A two-column grid of quick-launch shortcut cards. */
+/**
+ * The quiet quick-launch row: an UPPERCASE signpost label over a wrap of
+ * hairline-bordered chips. Deliberately lighter than a filled card grid — the
+ * clock owns the loud slot, so this recedes to structure (a border, a label)
+ * rather than a second block of color.
+ */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun QuickLaunch(modifier: Modifier = Modifier) {
     val context = LocalContext.current
+    val colors = UglyTheme.colors
     Column(modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Shortcut.entries.chunked(2).forEach { row ->
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                row.forEach { shortcut ->
-                    ShortcutCard(
-                        shortcut = shortcut,
-                        onClick = { launchShortcut(context, shortcut) },
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-                // Keep the final odd item aligned to its column.
-                if (row.size == 1) Spacer(Modifier.weight(1f))
+        Text(
+            text = "quick launch".uppercase(),
+            color = colors.mutedForeground,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 2.sp,
+            fontFamily = FontFamily.Monospace,
+        )
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Shortcut.entries.forEach { shortcut ->
+                ShortcutChip(
+                    shortcut = shortcut,
+                    onClick = { launchShortcut(context, shortcut) },
+                )
             }
         }
     }
 }
 
 @Composable
-private fun ShortcutCard(
-    shortcut: Shortcut,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
+private fun ShortcutChip(shortcut: Shortcut, onClick: () -> Unit) {
     val colors = UglyTheme.colors
-    Surface(
-        color = colors.surface,
-        shape = RoundedCornerShape(20.dp),
-        modifier = modifier
-            .height(64.dp)
-            .clickable(onClick = onClick),
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(20.dp))
+            .border(1.dp, colors.subtle, RoundedCornerShape(20.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
     ) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 20.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = shortcut.label,
-                color = colors.foreground,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Medium,
-                letterSpacing = 1.sp,
-                fontFamily = FontFamily.Monospace,
-            )
-        }
+        Text(
+            text = shortcut.label,
+            color = colors.foreground,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Medium,
+            letterSpacing = 1.sp,
+            fontFamily = FontFamily.Monospace,
+        )
     }
 }
