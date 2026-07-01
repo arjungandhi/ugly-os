@@ -8,7 +8,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -16,29 +15,16 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import com.uglyos.common.theme.UglyTheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 
 /** A launchable app, as surfaced by PackageManager. */
 data class AppInfo(val label: String, val packageName: String)
@@ -88,23 +74,12 @@ private val pages: List<@Composable () -> Unit> = listOf(
     { SettingsPage() },
 )
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun Home() {
-    val context = LocalContext.current
-    var showDrawer by remember { mutableStateOf(false) }
-    // Loaded once; we'll make this refresh on package changes in a later pass.
-    val apps = remember { loadApps(context) }
-    val sheetState = rememberModalBottomSheetState()
     val pagerState = rememberPagerState { pages.size }
 
     Scaffold(
         containerColor = UglyTheme.colors.background,
-        floatingActionButton = {
-            FloatingActionButton(onClick = { showDrawer = true }) {
-                Text("+", fontSize = 28.sp)
-            }
-        }
     ) { padding ->
         Box(
             modifier = Modifier
@@ -124,29 +99,6 @@ fun Home() {
                     .align(Alignment.BottomCenter)
                     .padding(bottom = 24.dp)
             )
-        }
-    }
-
-    if (showDrawer) {
-        ModalBottomSheet(
-            onDismissRequest = { showDrawer = false },
-            sheetState = sheetState
-        ) {
-            LazyColumn {
-                items(apps) { app ->
-                    Text(
-                        text = app.label,
-                        fontSize = 20.sp,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                launchApp(context, app.packageName)
-                                showDrawer = false
-                            }
-                            .padding(horizontal = 24.dp, vertical = 14.dp)
-                    )
-                }
-            }
         }
     }
 }
