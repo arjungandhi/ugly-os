@@ -154,9 +154,8 @@ private fun searchApps(
     apps.mapNotNull { app ->
         val score = matchScore(app.label, query)
         if (score == 0) null
-        else {
-            val boost = (Math.log1p(frecency[app.packageName] ?: 0.0) * 15).toInt().coerceAtMost(40)
-            SearchResult(app.label, "app", ResultSource.APP, score + boost) { launchApp(it, app.packageName) }
+        else SearchResult(app.label, "app", ResultSource.APP, score + Frecency.boost(frecency["app:${app.packageName}"])) {
+            launchApp(it, app.packageName)
         }
     }
 
@@ -177,16 +176,17 @@ private val SETTING_ENTRIES = listOf(
 )
 
 /** System settings screens, matched against label and keyword aliases. */
-private fun searchSettings(query: String): List<SearchResult> =
+private fun searchSettings(query: String, frecency: Map<String, Double>): List<SearchResult> =
     SETTING_ENTRIES.mapNotNull { entry ->
         val score = (listOf(entry.label) + entry.keywords).maxOf { matchScore(it, query) }
         if (score == 0) null
-        else SearchResult(entry.label, "setting", ResultSource.SETTING, score) { ctx ->
+        else SearchResult(entry.label, "setting", ResultSource.SETTING, score + Frecency.boost(frecency["setting:${entry.action}"])) { ctx ->
             try {
                 ctx.startActivity(Intent(entry.action))
             } catch (e: ActivityNotFoundException) {
                 ctx.startActivity(Intent(AndroidSettings.ACTION_SETTINGS))
             }
+            Frecency.record(ctx, "setting:${entry.action}")
         }
     }
 
@@ -195,7 +195,7 @@ private fun hasContactsPermission(context: Context) =
         PackageManager.PERMISSION_GRANTED
 
 /** Device contacts, matched by name via the contacts provider's own filter. */
-private fun searchContacts(context: Context, query: String): List<SearchResult> {
+private fun searchContacts(context: Context, query: String, frecency: Map<String, Double>): List<SearchResult> {
     if (!hasContactsPermission(context)) return emptyList()
     val uri = Uri.withAppendedPath(ContactsContract.Contacts.CONTENT_FILTER_URI, Uri.encode(query))
     val cols = arrayOf(ContactsContract.Contacts.LOOKUP_KEY, ContactsContract.Contacts.DISPLAY_NAME)
@@ -209,10 +209,12 @@ private fun searchContacts(context: Context, query: String): List<SearchResult> 
                 val lookup = cursor.getString(lookupIdx) ?: continue
                 val contactUri = Uri.withAppendedPath(ContactsContract.Contacts.CONTENT_LOOKUP_URI, lookup)
                 // The provider already fuzzy-matched; keep its order but rank exact
-                // name hits above the rest.
-                val score = matchScore(name, query).coerceAtLeast(40)
+                // name hits above the rest, then let frecency break ties between
+                // equally-good matches by whom you actually open.
+                val score = matchScore(name, query).coerceAtLeast(40) + Frecency.boost(frecency["contact:$lookup"])
                 results += SearchResult(name, "contact", ResultSource.CONTACT, score) { ctx ->
                     ctx.startActivity(Intent(Intent.ACTION_VIEW, contactUri))
+                    Frecency.record(ctx, "contact:$lookup")
                 }
             }
         }
@@ -248,8 +250,8 @@ private fun webFallback(query: String): List<SearchResult> = listOf(
 private fun runSearch(context: Context, apps: List<AppInfo>, query: String): List<SearchResult> {
     val frecency = Frecency.scores(context)
     return (searchApps(apps, query, frecency) +
-        searchSettings(query) +
-        searchContacts(context, query) +
+        searchSettings(query, frecency) +
+        searchContacts(context, query, frecency) +
         webFallback(query))
         .sortedWith(
             compareByDescending<SearchResult> { it.score }
