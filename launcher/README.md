@@ -25,6 +25,8 @@ APK output: `launcher/app/build/outputs/apk/debug/app-debug.apk`
 - `app/src/main/java/com/uglyos/launcher/Shortcuts.kt` — home-screen quick-launch grid
 - `app/src/main/java/com/uglyos/launcher/Settings.kt` — settings page + persisted config
 - `app/src/main/java/com/uglyos/launcher/TodoPage.kt` — read-only todo.txt list pages
+- `app/src/main/java/com/uglyos/launcher/Search.kt` — global spotlight-style search (left of home)
+- `app/src/main/java/com/uglyos/launcher/Frecency.kt` — per-app launch history feeding search ranking
 - `app/src/main/AndroidManifest.xml` — registers as HOME, queries launchable apps
 - `app/src/main/res/` — icon (adaptive, Nord-themed monkey), theme, strings
 - `common/` — shared library module (Nord theme, todo.txt library); see `common/README.md`
@@ -39,7 +41,15 @@ APK output: `launcher/app/build/outputs/apk/debug/app-debug.apk`
   implicit intents. Messages maps to Beeper (`com.beeper.android`), videos to
   Grayjay (`com.futo.platformplayer`), and wallet to Google Wallet
   (`com.google.android.apps.walletnfcrel`), all launched by package.
-- Pages, left to right: home, todo, work, settings.
+- Pages, left to right: search, home, todo, work, settings.
+- Search fans the query out to independent providers (apps, settings, contacts,
+  web fallback) and ranks all hits on one scale, so the best match across every
+  source leads as the "top hit" — the one Enter opens. Ranking uses graded fuzzy
+  scoring (exact > prefix > word-start > substring > loose subsequence, with
+  boundary/acronym bonuses) plus a frecency boost: apps launched more often and
+  more recently rank higher. Launch history lives in the `frecency` prefs and
+  decays with a ~3-day half-life. Add a source by writing another provider in
+  `Search.kt` and dropping it into `runSearch`.
 - The two todo pages read `monkey_dir/atp/todo/todo.txt` (read-only for now). The
   "todo" page shows every task *except* those tagged `@pattern`; the "work" page
   shows only `@pattern` tasks. Both are backed by the same `TodoPage` component.

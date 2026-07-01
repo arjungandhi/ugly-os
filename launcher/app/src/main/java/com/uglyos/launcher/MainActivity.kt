@@ -44,6 +44,7 @@ fun launchApp(context: Context, packageName: String) {
     val intent = context.packageManager.getLaunchIntentForPackage(packageName)
     if (intent != null) {
         context.startActivity(intent)
+        Frecency.record(context, packageName) // feed launch history into search ranking
     } else {
         Toast.makeText(context, "Can't launch $packageName", Toast.LENGTH_SHORT).show()
     }

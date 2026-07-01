@@ -79,37 +79,85 @@ data class SearchResult(
     val onSelect: (Context) -> Unit,
 )
 
+private val WORD_SEP = charArrayOf(' ', '.', '-', '_', '/')
+
 /**
- * Score how well [text] matches [query], 0 meaning no match. Prefix beats a
- * word-start beats a substring beats a loose subsequence, so the tightest
- * matches float to the top of their group.
+ * Score how well [text] matches [query], 0 meaning no match. Tiers (exact >
+ * prefix > word-start > substring > loose subsequence) are spaced far apart so
+ * match *quality* dominates. Within a tier a shorter target wins (a full-word
+ * "maps" beats "map my walk" for "map"), and loose subsequence hits are graded
+ * by how tightly they land so acronyms like "gm" → "Google Maps" rank high.
  */
 private fun matchScore(text: String, query: String): Int {
     val t = text.lowercase()
     val q = query.lowercase()
-    return when {
-        t == q -> 120
-        t.startsWith(q) -> 100
-        t.split(' ', '.', '-', '_').any { it.startsWith(q) } -> 80
-        t.contains(q) -> 50
-        isSubsequence(q, t) -> 20
-        else -> 0
+    if (q.isEmpty()) return 0
+
+    val tier = when {
+        t == q -> 1000
+        t.startsWith(q) -> 800
+        wordStarts(t).any { it.startsWith(q) } -> 600
+        t.contains(q) -> 400
+        else -> {
+            val sub = subsequenceScore(t, q)
+            if (sub < 0) return 0
+            200 + sub
+        }
     }
+    // Prefer shorter targets: the more of the title the query covers, the tighter.
+    val lengthBonus = (20.0 * q.length / t.length).toInt()
+    return tier + lengthBonus
 }
 
-/** True if every char of [q] appears in [t] in order (e.g. "gm" in "gmail"). */
-private fun isSubsequence(q: String, t: String): Boolean {
-    var i = 0
-    for (c in t) if (i < q.length && c == q[i]) i++
-    return i == q.length
+/** The word-start substrings of [t]: the whole string plus each char after a separator. */
+private fun wordStarts(t: String): List<String> {
+    val starts = mutableListOf(t)
+    for (i in 1 until t.length) {
+        if (t[i - 1] in WORD_SEP) starts += t.substring(i)
+    }
+    return starts
 }
 
-/** Installed apps, matched against their launcher label. */
-private fun searchApps(apps: List<AppInfo>, query: String): List<SearchResult> =
+/**
+ * Graded subsequence match: -1 if not every char of [q] appears in [t] in order,
+ * otherwise a small bonus (higher = tighter) rewarding consecutive runs and
+ * chars landing on word boundaries, so acronyms and initials rank near the top
+ * of the loose-match tier.
+ */
+private fun subsequenceScore(t: String, q: String): Int {
+    var qi = 0
+    var score = 0
+    var prevMatch = -2
+    for (ti in t.indices) {
+        if (qi >= q.length) break
+        if (t[ti] == q[qi]) {
+            if (ti == prevMatch + 1) score += 8 // consecutive with previous match
+            if (ti == 0 || t[ti - 1] in WORD_SEP) score += 10 // word boundary
+            prevMatch = ti
+            qi++
+        }
+    }
+    if (qi < q.length) return -1
+    return score.coerceAtMost(60)
+}
+
+/**
+ * Installed apps, matched against their launcher label. A bounded frecency bonus
+ * (log-scaled so heavy use can't run away, capped below one tier gap) lifts apps
+ * you actually open among comparable matches without crossing a match tier.
+ */
+private fun searchApps(
+    apps: List<AppInfo>,
+    query: String,
+    frecency: Map<String, Double>,
+): List<SearchResult> =
     apps.mapNotNull { app ->
         val score = matchScore(app.label, query)
         if (score == 0) null
-        else SearchResult(app.label, "app", ResultSource.APP, score) { launchApp(it, app.packageName) }
+        else {
+            val boost = (Math.log1p(frecency[app.packageName] ?: 0.0) * 15).toInt().coerceAtMost(40)
+            SearchResult(app.label, "app", ResultSource.APP, score + boost) { launchApp(it, app.packageName) }
+        }
     }
 
 /** A jump into a system settings screen. */
@@ -192,12 +240,23 @@ private fun webFallback(query: String): List<SearchResult> = listOf(
     },
 )
 
-/** Fan the query out to every provider and merge the results. */
-private fun runSearch(context: Context, apps: List<AppInfo>, query: String): List<SearchResult> =
-    searchApps(apps, query) +
+/**
+ * Fan the query out to every provider, merge, and rank globally so the single
+ * best hit — across apps, settings, contacts and web — leads the list. Ties
+ * break toward shorter (more specific) titles, then alphabetically for stability.
+ */
+private fun runSearch(context: Context, apps: List<AppInfo>, query: String): List<SearchResult> {
+    val frecency = Frecency.scores(context)
+    return (searchApps(apps, query, frecency) +
         searchSettings(query) +
         searchContacts(context, query) +
-        webFallback(query)
+        webFallback(query))
+        .sortedWith(
+            compareByDescending<SearchResult> { it.score }
+                .thenBy { it.title.length }
+                .thenBy { it.title.lowercase() }
+        )
+}
 
 /**
  * The search page, sitting to the left of home. When it scrolls into view
@@ -268,9 +327,23 @@ fun SearchPage(isActive: Boolean) {
         )
 
         LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            ResultSource.entries.forEach { source ->
-                val group = results.filter { it.source == source }
-                if (group.isNotEmpty()) {
+            val topHit = results.firstOrNull()
+            if (topHit != null) {
+                item { SectionHeader("top hit") }
+                item {
+                    ResultRow(topHit.title, topHit.subtitle, highlighted = true) {
+                        keyboard?.hide()
+                        topHit.onSelect(context)
+                    }
+                }
+            }
+            // Remaining hits, grouped by source with the strongest sources first.
+            val rest = results.drop(1)
+            ResultSource.entries
+                .map { source -> source to rest.filter { it.source == source } }
+                .filter { (_, group) -> group.isNotEmpty() }
+                .sortedByDescending { (_, group) -> group.maxOf { it.score } }
+                .forEach { (source, group) ->
                     item { SectionHeader(source.label) }
                     items(group) { result ->
                         ResultRow(result.title, result.subtitle) {
@@ -279,7 +352,6 @@ fun SearchPage(isActive: Boolean) {
                         }
                     }
                 }
-            }
         }
     }
 }
@@ -343,22 +415,37 @@ private fun SectionHeader(label: String) {
     )
 }
 
-/** One tappable result: title on top, source/detail below. */
+/**
+ * One tappable result: title on top, source/detail below. The [highlighted] top
+ * hit gets a filled card and accent title to signal it's what Enter will open.
+ */
 @Composable
-private fun ResultRow(title: String, subtitle: String?, onClick: () -> Unit) {
+private fun ResultRow(
+    title: String,
+    subtitle: String?,
+    highlighted: Boolean = false,
+    onClick: () -> Unit,
+) {
     val colors = UglyTheme.colors
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .then(
+                if (highlighted) {
+                    Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(colors.surface)
+                } else Modifier
+            )
             .clickable(onClick = onClick)
-            .padding(vertical = 8.dp),
+            .padding(horizontal = if (highlighted) 12.dp else 0.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         Text(
             text = title,
-            color = colors.foreground,
+            color = if (highlighted) colors.accent else colors.foreground,
             fontSize = 16.sp,
-            fontWeight = FontWeight.Medium,
+            fontWeight = if (highlighted) FontWeight.Bold else FontWeight.Medium,
             fontFamily = FontFamily.Monospace,
         )
         if (subtitle != null) {
