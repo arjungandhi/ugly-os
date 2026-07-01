@@ -15,3 +15,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "ugly-launcher"
 include(":app")
+include(":common")
