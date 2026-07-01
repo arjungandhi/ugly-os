@@ -147,9 +147,12 @@ private fun subsequenceScore(t: String, q: String): Int {
 }
 
 /**
- * Installed apps, matched against their launcher label. A bounded frecency bonus
- * (log-scaled so heavy use can't run away, capped below one tier gap) lifts apps
- * you actually open among comparable matches without crossing a match tier.
+ * Installed apps, matched against their (possibly renamed) label and their
+ * user tags, whichever scores higher. When a tag drives the match it shows as
+ * the subtitle (e.g. "#chat") so it's clear why the app surfaced. A bounded
+ * frecency bonus (log-scaled so heavy use can't run away, capped below one tier
+ * gap) lifts apps you actually open among comparable matches without crossing a
+ * match tier.
  */
 private fun searchApps(
     apps: List<AppInfo>,
@@ -157,10 +160,16 @@ private fun searchApps(
     frecency: Map<String, Double>,
 ): List<SearchResult> =
     apps.mapNotNull { app ->
-        val score = matchScore(app.label, query)
+        val labelScore = matchScore(app.label, query)
+        val bestTag = app.tags.maxByOrNull { matchScore(it, query) }
+        val tagScore = bestTag?.let { matchScore(it, query) } ?: 0
+        val score = maxOf(labelScore, tagScore)
         if (score == 0) null
-        else SearchResult(app.label, null, ResultSource.APP, score + Frecency.boost(frecency["app:${app.packageName}"])) {
-            launchApp(it, app.packageName)
+        else {
+            val subtitle = if (tagScore > labelScore && bestTag != null) "#$bestTag" else null
+            SearchResult(app.label, subtitle, ResultSource.APP, score + Frecency.boost(frecency["app:${app.packageName}"])) {
+                launchApp(it, app.packageName)
+            }
         }
     }
 

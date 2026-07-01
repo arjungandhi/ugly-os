@@ -7,9 +7,11 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -21,20 +23,48 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Scaffold
 import com.uglyos.common.theme.UglyTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 
-/** A launchable app, as surfaced by PackageManager. */
-data class AppInfo(val label: String, val packageName: String)
+/**
+ * A launchable app, as surfaced by PackageManager and overlaid with the user's
+ * own [AppMeta]: [label] is what we show and search (their custom name if set,
+ * else the [systemLabel]), plus any searchable [tags].
+ */
+data class AppInfo(
+    val label: String,
+    val packageName: String,
+    val systemLabel: String = label,
+    val tags: List<String> = emptyList(),
+) {
+    /** True once the user has renamed or tagged this app — worth a status pip. */
+    val customized: Boolean get() = label != systemLabel || tags.isNotEmpty()
+}
 
-/** Query every app that exposes a MAIN/LAUNCHER activity, sorted by name. */
+/**
+ * Query every app that exposes a MAIN/LAUNCHER activity, overlay each with its
+ * [AppMeta] override, and sort by the resulting display name.
+ */
 fun loadApps(context: Context): List<AppInfo> {
     val pm = context.packageManager
     val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+    val names = AppMeta.names(context)
+    val tags = AppMeta.tags(context)
     return pm.queryIntentActivities(intent, 0)
-        .map { AppInfo(it.loadLabel(pm).toString(), it.activityInfo.packageName) }
+        .map {
+            val pkg = it.activityInfo.packageName
+            val system = it.loadLabel(pm).toString()
+            AppInfo(
+                label = names[pkg] ?: system,
+                packageName = pkg,
+                systemLabel = system,
+                tags = tags[pkg] ?: emptyList(),
+            )
+        }
         .distinctBy { it.packageName }
         .sortedBy { it.label.lowercase() }
 }
@@ -75,42 +105,56 @@ private const val PAGE_COUNT = 5
 @Composable
 fun Home() {
     val pagerState = rememberPagerState(initialPage = HOME_PAGE) { PAGE_COUNT }
+    val scope = rememberCoroutineScope()
 
-    Scaffold(
-        containerColor = UglyTheme.colors.background,
-    ) { padding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-        ) {
-            HorizontalPager(
-                state = pagerState,
-                modifier = Modifier.fillMaxSize()
-            ) { page ->
-                when (page) {
-                    SEARCH_PAGE -> SearchPage(isActive = pagerState.currentPage == SEARCH_PAGE)
-                    HOME_PAGE -> HomePage()
-                    2 -> TodoPage("todo") { PATTERN_CONTEXT !in it.contexts }
-                    3 -> TodoPage("work") { PATTERN_CONTEXT in it.contexts }
-                    else -> SettingsPage()
-                }
-            }
-            PageIndicator(
-                currentPage = pagerState.currentPage,
-                pageCount = PAGE_COUNT,
+    // The app drawer is an overlay, not a page: it slides up over whatever's
+    // below. [drawerOffset] is its vertical shift in px — full height is closed
+    // (parked just off the bottom), 0 is fully open. Keyed to the measured
+    // height so a rotation re-parks it correctly.
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val heightPx = constraints.maxHeight.toFloat()
+        val drawerOffset = remember(heightPx) { Animatable(heightPx) }
+
+        Scaffold(
+            containerColor = UglyTheme.colors.background,
+        ) { padding ->
+            Box(
                 modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 24.dp)
-            )
+                    .fillMaxSize()
+                    .padding(padding)
+            ) {
+                HorizontalPager(
+                    state = pagerState,
+                    modifier = Modifier.fillMaxSize()
+                ) { page ->
+                    when (page) {
+                        SEARCH_PAGE -> SearchPage(isActive = pagerState.currentPage == SEARCH_PAGE)
+                        HOME_PAGE -> HomePage(
+                            modifier = Modifier.drawerDrag(drawerOffset, heightPx, scope)
+                        )
+                        2 -> TodoPage("todo") { PATTERN_CONTEXT !in it.contexts }
+                        3 -> TodoPage("work") { PATTERN_CONTEXT in it.contexts }
+                        else -> SettingsPage()
+                    }
+                }
+                PageIndicator(
+                    currentPage = pagerState.currentPage,
+                    pageCount = PAGE_COUNT,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 24.dp)
+                )
+            }
         }
+
+        AppDrawer(offset = drawerOffset, heightPx = heightPx, scope = scope)
     }
 }
 
 /** The center page: clock up top, quick-launch shortcuts along the bottom. */
 @Composable
-fun HomePage() {
-    Box(modifier = Modifier.fillMaxSize()) {
+fun HomePage(modifier: Modifier = Modifier) {
+    Box(modifier = modifier.fillMaxSize()) {
         DateTimeWidget(
             modifier = Modifier
                 .align(Alignment.TopCenter)
