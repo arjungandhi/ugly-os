@@ -217,9 +217,17 @@ fun TodoPage(title: String, hiddenContext: String? = null, filter: (Task) -> Boo
         }
     }
 
-    // Mutations run off the main thread; the FileObserver above picks up the
-    // resulting file change and reloads the list.
-    fun mutate(block: () -> Unit) = scope.launch { withContext(Dispatchers.IO) { block() } }
+    // Mutations run off the main thread, then reload the list directly. We don't
+    // wait on the FileObserver for our own edits: it watches emulated external
+    // storage (where inotify events are dropped) and the tmp-file+rename save
+    // emits a burst of events, so a local add would only show up intermittently.
+    // The observer stays for external (Syncthing) changes.
+    fun mutate(block: () -> Unit) = scope.launch {
+        state = withContext(Dispatchers.IO) {
+            block()
+            loadTodoState(context, currentFilter)
+        }
+    }
 
     Column(
         modifier = Modifier
