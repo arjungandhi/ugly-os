@@ -133,7 +133,7 @@ fun Home() {
                             modifier = Modifier.drawerDrag(drawerOffset, heightPx, scope)
                         )
                         2 -> TodoPage("todo") { PATTERN_CONTEXT !in it.contexts }
-                        3 -> TodoPage("work") { PATTERN_CONTEXT in it.contexts }
+                        3 -> TodoPage("work", hiddenContext = PATTERN_CONTEXT) { PATTERN_CONTEXT in it.contexts }
                         else -> SettingsPage()
                     }
                 }

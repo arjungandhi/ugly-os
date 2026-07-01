@@ -109,6 +109,17 @@ private fun addTask(context: Context, line: String) {
     TodoFile(file).edit { it.add(line) }
 }
 
+/**
+ * The scoping `@`[tag] appended to [line] unless it's already there, so a task
+ * added on a context-scoped page (e.g. work) lands on that page. We hide the tag
+ * in the display, so it's added silently rather than pre-filled in the editor.
+ */
+private fun withScopingContext(line: String, tag: String?): String {
+    if (tag == null) return line
+    val task = Task.parse(line) ?: return line
+    return if (tag in task.contexts) line else "$line @$tag"
+}
+
 /** Replace the line at [index]; a line that parses to nothing deletes it. */
 private fun updateTask(context: Context, index: Int, line: String) {
     val file = Settings.todoFile(context) ?: return
@@ -156,13 +167,15 @@ private data class TaskEdit(val index: Int?, val initial: String)
 /**
  * An interactive todo.txt list page. [filter] narrows which tasks appear so the
  * same component can back several pages (e.g. one excluding a context, one
- * showing only it). The file is read directly and watched with FileObserver, so
- * changes (from edits here or synced in by Syncthing) appear live; it also
- * reloads on resume. Tap a task's dot to complete it (archived to done.txt), tap
- * its text to edit or delete it, and use "add task" to append a new line.
+ * showing only it). [hiddenContext] is the `@context` that scopes the page — it's
+ * on every row here, so the page title already says it and we strip it from the
+ * task text rather than repeat it. The file is read directly and watched with
+ * FileObserver, so changes (from edits here or synced in by Syncthing) appear
+ * live; it also reloads on resume. Tap a task's dot to complete it (archived to
+ * done.txt), tap its text to edit or delete it, and use "add task" to append a line.
  */
 @Composable
-fun TodoPage(title: String, filter: (Task) -> Boolean) {
+fun TodoPage(title: String, hiddenContext: String? = null, filter: (Task) -> Boolean) {
     val context = LocalContext.current
     val colors = UglyTheme.colors
     val scope = rememberCoroutineScope()
@@ -230,6 +243,7 @@ fun TodoPage(title: String, filter: (Task) -> Boolean) {
                         items(s.tasks) { item ->
                             TaskRow(
                                 task = item.task,
+                                hiddenContext = hiddenContext,
                                 onComplete = { mutate { completeTask(context, item.index) } },
                                 onEdit = { editing = TaskEdit(item.index, item.task.format()) },
                             )
@@ -252,7 +266,7 @@ fun TodoPage(title: String, filter: (Task) -> Boolean) {
                 val trimmed = line.trim()
                 mutate {
                     if (edit.index == null) {
-                        if (trimmed.isNotEmpty()) addTask(context, trimmed)
+                        if (trimmed.isNotEmpty()) addTask(context, withScopingContext(trimmed, hiddenContext))
                     } else {
                         updateTask(context, edit.index, trimmed)
                     }
@@ -321,7 +335,7 @@ private fun AddRow(onClick: () -> Unit) {
  * due date. Tapping the dot completes; tapping the text opens the editor.
  */
 @Composable
-private fun TaskRow(task: Task, onComplete: () -> Unit, onEdit: () -> Unit) {
+private fun TaskRow(task: Task, hiddenContext: String?, onComplete: () -> Unit, onEdit: () -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -329,7 +343,7 @@ private fun TaskRow(task: Task, onComplete: () -> Unit, onEdit: () -> Unit) {
     ) {
         CompletionDot(completed = task.completed, onClick = onComplete)
         Text(
-            text = taskAnnotated(task),
+            text = taskAnnotated(task, hiddenContext),
             fontSize = 15.sp,
             fontFamily = FontFamily.Monospace,
             textDecoration = if (task.completed) TextDecoration.LineThrough else null,
@@ -410,7 +424,7 @@ private fun priorityColor(priority: Char, colors: com.uglyos.common.theme.ThemeC
  * so they read as quiet tags, not part of the sentence. User casing is untouched.
  */
 @Composable
-private fun taskAnnotated(task: Task): AnnotatedString {
+private fun taskAnnotated(task: Task, hiddenContext: String?): AnnotatedString {
     val colors = UglyTheme.colors
     val done = task.completed
     val base = if (done) colors.mutedForeground else colors.foreground
@@ -420,22 +434,13 @@ private fun taskAnnotated(task: Task): AnnotatedString {
                 append("($p) ")
             }
         }
-        val text = cleanDescription(task)
+        val text = task.displayText(hideContexts = setOfNotNull(hiddenContext))
         text.split(" ").forEachIndexed { i, word ->
             if (i > 0) append(" ")
             val color = if (word.startsWith("@") || word.startsWith("+")) colors.mutedForeground else base
             withStyle(SpanStyle(color = color)) { append(word) }
         }
     }
-}
-
-/** The description with `key:value` tags (e.g. `due:`) removed; raw as fallback. */
-private fun cleanDescription(task: Task): String {
-    val cleaned = task.description
-        .replace(Regex("""(?:^|\s)[^\s:]+:[^\s:]+"""), "")
-        .replace(Regex("""\s+"""), " ")
-        .trim()
-    return cleaned.ifEmpty { task.description }
 }
 
 /**

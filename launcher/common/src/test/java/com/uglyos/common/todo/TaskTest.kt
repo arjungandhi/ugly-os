@@ -34,6 +34,26 @@ class TaskTest {
         assertEquals(listOf("dmv"), t.contexts)
     }
 
+    @Test fun displayTextDropsKeyValueTags() {
+        val t = Task.parse("buy milk @errands due:2026-07-01")!!
+        assertEquals("buy milk @errands", t.displayText())
+    }
+
+    @Test fun displayTextHidesNamedContextsButKeepsOthers() {
+        val t = Task.parse("call bob @pattern @home +proj due:2026-07-01")!!
+        assertEquals("call bob @home +proj", t.displayText(hideContexts = setOf("pattern")))
+    }
+
+    @Test fun displayTextOnlyHidesExactContextMatch() {
+        val t = Task.parse("ship @patternfoo release")!!
+        assertEquals("ship @patternfoo release", t.displayText(hideContexts = setOf("pattern")))
+    }
+
+    @Test fun displayTextFallsBackToRawWhenNothingLeft() {
+        val t = Task.parse("@pattern")!!
+        assertEquals("@pattern", t.displayText(hideContexts = setOf("pattern")))
+    }
+
     @Test fun blankLineParsesToNull() {
         assertNull(Task.parse("   "))
         assertNull(Task.parse(""))

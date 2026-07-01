@@ -52,6 +52,25 @@ data class Task(
             }
         }
 
+    /**
+     * The [description] cleaned up for showing to a human: `key:value` tags
+     * (e.g. `due:2026-06-30`) dropped, since they're metadata surfaced elsewhere,
+     * along with any `@context` named in [hideContexts] — useful when a view is
+     * already scoped to a context and shouldn't repeat it on every row. Projects
+     * and remaining contexts stay inline; runs of whitespace collapse to one
+     * space. Falls back to the raw [description] if nothing would be left.
+     */
+    fun displayText(hideContexts: Set<String> = emptySet()): String {
+        var text = TAG_REGEX.replace(description, "")
+        if (hideContexts.isNotEmpty()) {
+            text = CONTEXT_REGEX.replace(text) { m ->
+                if (m.groupValues[1] in hideContexts) "" else m.value
+            }
+        }
+        val cleaned = text.replace(WHITESPACE_REGEX, " ").trim()
+        return cleaned.ifEmpty { description }
+    }
+
     /** This task marked done, stamping [on] as the completion date. */
     fun complete(on: LocalDate): Task =
         copy(completed = true, completionDate = on)
@@ -77,6 +96,7 @@ data class Task(
         private val PROJECT_REGEX = Regex("""(?:^|\s)\+(\S+)""")
         private val CONTEXT_REGEX = Regex("""(?:^|\s)@(\S+)""")
         private val TAG_REGEX = Regex("""(?:^|\s)([^\s:]+):([^\s:]+)""")
+        private val WHITESPACE_REGEX = Regex("""\s+""")
 
         private fun Regex.findValues(input: String): List<String> =
             findAll(input).map { it.groupValues[1] }.toList()
