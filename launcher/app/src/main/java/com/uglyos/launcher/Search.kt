@@ -16,11 +16,16 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -154,7 +159,7 @@ private fun searchApps(
     apps.mapNotNull { app ->
         val score = matchScore(app.label, query)
         if (score == 0) null
-        else SearchResult(app.label, "app", ResultSource.APP, score + Frecency.boost(frecency["app:${app.packageName}"])) {
+        else SearchResult(app.label, null, ResultSource.APP, score + Frecency.boost(frecency["app:${app.packageName}"])) {
             launchApp(it, app.packageName)
         }
     }
@@ -180,7 +185,7 @@ private fun searchSettings(query: String, frecency: Map<String, Double>): List<S
     SETTING_ENTRIES.mapNotNull { entry ->
         val score = (listOf(entry.label) + entry.keywords).maxOf { matchScore(it, query) }
         if (score == 0) null
-        else SearchResult(entry.label, "setting", ResultSource.SETTING, score + Frecency.boost(frecency["setting:${entry.action}"])) { ctx ->
+        else SearchResult(entry.label, null, ResultSource.SETTING, score + Frecency.boost(frecency["setting:${entry.action}"])) { ctx ->
             try {
                 ctx.startActivity(Intent(entry.action))
             } catch (e: ActivityNotFoundException) {
@@ -212,7 +217,7 @@ private fun searchContacts(context: Context, query: String, frecency: Map<String
                 // name hits above the rest, then let frecency break ties between
                 // equally-good matches by whom you actually open.
                 val score = matchScore(name, query).coerceAtLeast(40) + Frecency.boost(frecency["contact:$lookup"])
-                results += SearchResult(name, "contact", ResultSource.CONTACT, score) { ctx ->
+                results += SearchResult(name, null, ResultSource.CONTACT, score) { ctx ->
                     ctx.startActivity(Intent(Intent.ACTION_VIEW, contactUri))
                     Frecency.record(ctx, "contact:$lookup")
                 }
@@ -333,7 +338,8 @@ fun SearchPage(isActive: Boolean) {
             if (topHit != null) {
                 item { SectionHeader("top hit") }
                 item {
-                    ResultRow(topHit.title, topHit.subtitle, highlighted = true) {
+                    // Pulled out of its group, so name its source to keep context.
+                    ResultRow(topHit.title, topHit.subtitle ?: topHit.source.label, highlighted = true) {
                         keyboard?.hide()
                         topHit.onSelect(context)
                     }
@@ -403,18 +409,34 @@ private fun SearchField(
     }
 }
 
-/** A dimmed, uppercase label separating result groups. */
+/**
+ * A structural signpost between groups: a bullet dot and a tracked, uppercase
+ * label, echoing the calendar card so the screen reads as one phone. The dot is
+ * [subtle] — pure structure, not the accent, which is reserved for the top hit.
+ */
 @Composable
 private fun SectionHeader(label: String) {
-    Text(
-        text = label.uppercase(),
-        color = UglyTheme.colors.mutedForeground,
-        fontSize = 12.sp,
-        fontWeight = FontWeight.Bold,
-        letterSpacing = 2.sp,
-        fontFamily = FontFamily.Monospace,
-        modifier = Modifier.padding(top = 12.dp, bottom = 2.dp),
-    )
+    val colors = UglyTheme.colors
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.padding(top = 20.dp, bottom = 6.dp),
+    ) {
+        Box(
+            Modifier
+                .size(6.dp)
+                .clip(CircleShape)
+                .background(colors.subtle)
+        )
+        Spacer(Modifier.width(10.dp))
+        Text(
+            text = label.uppercase(),
+            color = colors.mutedForeground,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 2.sp,
+            fontFamily = FontFamily.Monospace,
+        )
+    }
 }
 
 /**
@@ -429,6 +451,8 @@ private fun ResultRow(
     onClick: () -> Unit,
 ) {
     val colors = UglyTheme.colors
+    // Rows hang off the same 16dp left edge as the header labels, so the dot
+    // sits in a gutter and the list aligns to a visible grid.
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -440,8 +464,13 @@ private fun ResultRow(
                 } else Modifier
             )
             .clickable(onClick = onClick)
-            .padding(horizontal = if (highlighted) 12.dp else 0.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(2.dp),
+            .padding(
+                start = 16.dp,
+                end = if (highlighted) 16.dp else 0.dp,
+                top = if (highlighted) 12.dp else 8.dp,
+                bottom = if (highlighted) 12.dp else 8.dp,
+            ),
+        verticalArrangement = Arrangement.spacedBy(3.dp),
     ) {
         Text(
             text = title,
@@ -454,7 +483,7 @@ private fun ResultRow(
             Text(
                 text = subtitle,
                 color = colors.mutedForeground,
-                fontSize = 12.sp,
+                fontSize = 13.sp,
                 fontFamily = FontFamily.Monospace,
             )
         }
