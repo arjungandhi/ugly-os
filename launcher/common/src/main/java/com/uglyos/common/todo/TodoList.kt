@@ -61,18 +61,28 @@ class TodoList(tasks: List<Task> = emptyList()) : Iterable<Task> {
         _tasks.flatMap { it.contexts }.distinct().sorted()
 
     /**
-     * A view sorted for display: open tasks before done, then by priority
-     * (A first, unprioritized last). Does not mutate this list.
+     * A view sorted for display, using [DISPLAY_ORDER]. Does not mutate this list.
      */
-    fun sortedForDisplay(): List<Task> =
-        _tasks.sortedWith(
-            compareBy({ it.completed }, { it.priority ?: '{' }),
-        )
+    fun sortedForDisplay(): List<Task> = _tasks.sortedWith(DISPLAY_ORDER)
 
     /** Serialize to todo.txt text, one task per line, in file order. */
     fun render(): String = _tasks.joinToString("\n") { it.format() }
 
     companion object {
+        /**
+         * The order [sortedForDisplay] uses, exposed so callers that track their
+         * own line indices can sort without losing them: open tasks before done,
+         * then by priority (A first, unprioritized last), then by due date
+         * (soonest first, undated last), then description.
+         */
+        val DISPLAY_ORDER: Comparator<Task> =
+            compareBy(
+                { it.completed },
+                { it.priority ?: '{' },
+                { it.due ?: java.time.LocalDate.MAX },
+                { it.description.lowercase() },
+            )
+
         /** Parse whole-file [text], skipping blank lines. */
         fun parse(text: String): TodoList =
             TodoList(text.lineSequence().mapNotNull { Task.parse(it) }.toList())

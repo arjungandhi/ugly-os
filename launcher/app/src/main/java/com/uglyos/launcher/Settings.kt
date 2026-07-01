@@ -71,6 +71,10 @@ object Settings {
     fun todoFile(context: Context): File? =
         monkeyDir(context)?.let { File(it, "atp/todo/todo.txt") }
 
+    /** The done.txt inside the monkey dir, where completed tasks are archived. */
+    fun doneFile(context: Context): File? =
+        monkeyDir(context)?.let { File(it, "atp/todo/done.txt") }
+
     /** Persist the chosen monkey dir. */
     fun setMonkeyDir(context: Context, path: String) {
         prefs(context).edit().putString(KEY_MONKEY_DIR, path).apply()

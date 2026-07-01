@@ -51,6 +51,20 @@ class TodoListTest {
         assertTrue(sorted.last().completed)
     }
 
+    @Test fun sortedForDisplayBreaksPriorityTiesByDueDate() {
+        val list = TodoList.parse(
+            """
+            (A) later task due:2026-08-01
+            (A) sooner task due:2026-07-01
+            (A) undated task
+            """.trimIndent()
+        )
+        val sorted = list.sortedForDisplay()
+        assertEquals("sooner task due:2026-07-01", sorted[0].description)
+        assertEquals("later task due:2026-08-01", sorted[1].description)
+        assertEquals("undated task", sorted[2].description)
+    }
+
     @Test fun renderRoundTripsThroughParse() {
         val list = sample()
         val reparsed = TodoList.parse(list.render())

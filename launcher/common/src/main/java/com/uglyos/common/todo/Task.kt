@@ -42,6 +42,16 @@ data class Task(
             it.groupValues[1] to it.groupValues[2]
         }
 
+    /** The `due:YYYY-MM-DD` date if present and parseable, else null. */
+    val due: LocalDate?
+        get() = tags["due"]?.let {
+            try {
+                LocalDate.parse(it)
+            } catch (e: DateTimeParseException) {
+                null
+            }
+        }
+
     /** This task marked done, stamping [on] as the completion date. */
     fun complete(on: LocalDate): Task =
         copy(completed = true, completionDate = on)

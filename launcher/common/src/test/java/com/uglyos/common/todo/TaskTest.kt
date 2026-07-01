@@ -86,4 +86,10 @@ class TaskTest {
         val t = Task.parse("do thing due:2026-01-01 due:2026-12-31")!!
         assertEquals("2026-12-31", t.tags["due"])
     }
+
+    @Test fun dueParsesTheDueTagAsADate() {
+        assertEquals(LocalDate.of(2026, 7, 5), Task.parse("call plumber due:2026-07-05")!!.due)
+        assertNull(Task.parse("no due date here")!!.due)
+        assertNull(Task.parse("bad due:not-a-date")!!.due)
+    }
 }

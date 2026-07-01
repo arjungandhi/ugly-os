@@ -13,12 +13,15 @@ Shared library module for ugly launcher (`com.uglyos.common`). Consumed by
 
 - **`Task`** — one parsed line: `completed`, `priority` (`A`–`Z`), `creationDate`,
   `completionDate`, and the free-text `description`. Inline `+project`, `@context`,
-  and `key:value` tags are exposed as the `projects`, `contexts`, and `tags` views.
-  `parse()` never throws (blank lines and malformed dates degrade gracefully);
-  `format()` round-trips back to a todo.txt line.
+  and `key:value` tags are exposed as the `projects`, `contexts`, and `tags` views;
+  a `due:` tag is surfaced as the parsed `due` date. `parse()` never throws (blank
+  lines and malformed dates degrade gracefully); `format()` round-trips back to a
+  todo.txt line.
 - **`TodoList`** — an ordered, mutable collection of tasks. Add/update/remove,
-  filter by project/context, list distinct projects/contexts, `sortedForDisplay()`,
-  and `render()`/`parse()` whole-file text.
+  filter by project/context, list distinct projects/contexts, and `render()`/
+  `parse()` whole-file text. `sortedForDisplay()` orders open-before-done, then by
+  priority, then by due date (soonest first); its `DISPLAY_ORDER` comparator is
+  exposed for callers that track their own line indices.
 - **`TodoFile`** — loads a `File` (empty list if absent) and saves atomically
   via a temp file + rename. `edit {}` loads, mutates, and saves in one call.
 
