@@ -6,9 +6,8 @@ the launcher is the first app, so its screens are the worked examples throughout
 — but this doc governs the whole os. anything new should look like it belongs on
 the same phone.
 
-it is not a description of what exists today — most of the current screens are
-placeholder. it is the direction everything should move toward. when a screen
-disagrees with this doc, the screen is wrong.
+it is the direction, not just a description of what exists today. when a
+screen disagrees with this doc, the screen is wrong.
 
 ## the one-liner
 
@@ -186,26 +185,25 @@ reading flows top-to-bottom; reach flows bottom-up. a good screen honors both.
 
 ## applying it — per screen
 
-the anchor is done. here's the direction for the rest so they catch up to it.
-
-- **home** — already close. clock + calendar own the top; quick-launch sits
-  quietly at the bottom in muted grey. shortcut tiles are structure, not color —
-  a label in `foreground`, the tile in `surface`, no accent unless pressed.
+- **home** — clock + calendar own the top; quick-launch sits quietly at the
+  bottom in muted grey. shortcut tiles are structure, not color — a label in
+  `foreground`, the tile in `surface`, no accent unless pressed.
 - **search** — the field is the one loud thing: `surface`, 20dp radius,
   monospace 18sp, `accent` cursor. results are a plain lowercase list under
   UPPERCASE source labels (`APPS`, `SETTINGS`). only the top hit earns the
   accent — a filled 12dp card + accent title — because it's what enter opens.
 - **todo / work** — this is where aurora earns its keep. lowercase task text in
-  `foreground`; priority `(A)/(B)` as a colored pip or badge (`error`/`warning`);
+  `foreground`; priority `(A)/(B)` as a colored badge (`error`/`warning`);
   completed tasks drop to `mutedForeground` with `success` marking done.
-  projects/contexts, if shown, are quiet — muted, or one spare hue, never a
-  rainbow. empty state is a single dimmed lowercase line: `no tasks`. the title
-  reads up top; `add task` is pinned low in thumb reach (see **reach**), and the
-  editor rises as a bottom sheet.
+  contexts/tags are quiet — muted, never a rainbow. empty state is a single
+  dimmed lowercase line: `no tasks`. title reads up top; `add task` is pinned
+  low in thumb reach (see **reach**); the editor rises as a bottom sheet.
 - **settings** — the most utilitarian screen; keep it flattest. a `settings`
   title, grouped rows in a `surface` card, lowercase labels, values in
   `mutedForeground`, a `subtle` chevron. no accent unless something is actively
   on or actionable.
+
+new screens should read like the sibling of these four.
 
 ## the taste test
 
