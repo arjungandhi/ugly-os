@@ -8,9 +8,12 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -19,6 +22,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
@@ -80,7 +84,7 @@ fun SettingsPage() {
             .fillMaxSize()
             .padding(horizontal = 20.dp)
             .padding(top = 48.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
         Text(
             text = "settings",
@@ -90,27 +94,45 @@ fun SettingsPage() {
             letterSpacing = 2.sp,
             fontFamily = FontFamily.Monospace,
         )
-        SettingRow(
-            label = "monkey dir",
-            value = monkeyDir?.displayPath() ?: "not set",
-            onClick = { picker.launch(monkeyDir) },
-        )
+        SettingGroup {
+            SettingRow(
+                label = "monkey dir",
+                value = monkeyDir?.displayPath() ?: "tap to choose a folder",
+                isSet = monkeyDir != null,
+                onClick = { picker.launch(monkeyDir) },
+            )
+        }
     }
 }
 
-/** A tappable settings entry: label on top, current value below. */
+/** A rounded card that groups related settings rows. */
 @Composable
-private fun SettingRow(label: String, value: String, onClick: () -> Unit) {
-    val colors = UglyTheme.colors
+private fun SettingGroup(content: @Composable () -> Unit) {
     Surface(
-        color = colors.surface,
+        color = UglyTheme.colors.surface,
         shape = RoundedCornerShape(20.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column { content() }
+    }
+}
+
+/**
+ * A tappable settings entry: bold label on top, current value below. The trailing
+ * chevron and the "tap to…" hint when unset signal that the row opens a picker.
+ */
+@Composable
+private fun SettingRow(label: String, value: String, isSet: Boolean, onClick: () -> Unit) {
+    val colors = UglyTheme.colors
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick),
+            .clickable(onClick = onClick)
+            .padding(horizontal = 20.dp, vertical = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(
-            Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp),
+            modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             Text(
@@ -123,10 +145,17 @@ private fun SettingRow(label: String, value: String, onClick: () -> Unit) {
             )
             Text(
                 text = value,
-                color = colors.mutedForeground,
+                color = if (isSet) colors.accent else colors.mutedForeground,
                 fontSize = 13.sp,
                 fontFamily = FontFamily.Monospace,
             )
         }
+        Spacer(Modifier.width(12.dp))
+        Text(
+            text = "›",
+            color = colors.mutedForeground,
+            fontSize = 22.sp,
+            fontFamily = FontFamily.Monospace,
+        )
     }
 }
