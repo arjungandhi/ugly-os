@@ -1,0 +1,197 @@
+# design
+
+the design language for ugly os. read this before touching any ui, in any app.
+
+the launcher is the first app, so its screens are the worked examples throughout
+— but this doc governs the whole os. anything new should look like it belongs on
+the same phone.
+
+it is not a description of what exists today — most of the current screens are
+placeholder. it is the direction everything should move toward. when a screen
+disagrees with this doc, the screen is wrong.
+
+## the one-liner
+
+**nothing os, wearing nord, speaking in lowercase.**
+
+- **nothing os** gives us the bones: dot-matrix, monospace, exposed grid,
+  ruthless restraint, one thing loud per screen.
+- **nord** gives us the skin: a calm arctic palette, muted by default, with
+  aurora colors that only show up when they *mean* something.
+- **lowercase** gives us the attitude: terse, honest, unbranded. a tool a person
+  made for themselves, not a product. "scuffed" lives in the *words and tone*,
+  never in broken alignment or sloppy pixels.
+
+## the anchor
+
+the **dot-matrix clock + calendar card** (`DotMatrixClock.kt`,
+`DateTimeWidget.kt`) is the north star. it is already right. every other screen
+should feel like it belongs on the same phone as that clock.
+
+when unsure how to style something, open the home screen and ask: *would this sit
+comfortably under that clock?* if not, change it.
+
+what makes it right, and what to carry everywhere:
+
+- a single dominant element, rendered with care (the dots).
+- structure you can see: a visible grid, a hairline border, a bullet dot.
+- monospace tracked out into a quiet UPPERCASE label (`CALENDAR · month`).
+- generous negative space. nothing is crowded.
+- exactly one accent touch (the bullet dot), and nothing else colored.
+
+## principles
+
+1. **one loud thing per screen.** pick the single element that matters — the
+   clock, the search field, the top hit — and let it dominate. everything else
+   recedes to muted grey. never two things shouting.
+2. **the grid is visible.** align to it and don't hide it. hairline dividers,
+   dotted separators, and honest edges are features. structure on display.
+3. **restraint is the default.** grayscale/neutral first. color is earned, not
+   decorative. an all-grey screen is a correct screen.
+4. **honest, lowercase words.** labels are plain and terse. no marketing, no
+   title case, no exclamation. `settings`, not `Settings`. `no tasks`, not
+   `You're all caught up! 🎉`.
+5. **precise, not rough.** "ugly" is a tone, not a lack of craft. baselines
+   line up, spacing is on the scale, dots are round. we are scuffed in voice and
+   pristine in execution.
+6. **built for a person, not a store.** it can assume you know what things are.
+   fewer affordances, less hand-holding, more density where a power user wants it.
+
+## color
+
+source of truth: `common/theme/Nord.kt` + `ThemeColors.kt`. use semantic roles
+(`UglyTheme.colors.foreground`), never raw hexes in ui code.
+
+### the neutral base — this is ~95% of every screen
+
+| role | nord | hex | use for |
+|------|------|-----|---------|
+| `background` | nord0 | `#2E3440` | the canvas behind everything |
+| `surface` | nord1 | `#3B4252` | cards, sheets, the search field |
+| `surfaceElevated` | nord2 | `#434C5E` | a card on a card, pressed states |
+| `foreground` | nord6 | `#ECEFF4` | primary text, the lit dots |
+| `mutedForeground` | nord4 | `#D8DEE9` | labels, captions, secondary text |
+| `subtle` | nord3 | `#4C566A` | hairlines, borders, dividers, disabled |
+| `accent` | nord8 | `#88C0D0` | the *one* highlight per screen |
+
+paint a screen in these first. if it reads well entirely in greys with a single
+`accent` touch, you're done — don't add more.
+
+### aurora — color that carries meaning
+
+the aurora palette is **semantic, never decorative**. a color appears only when
+it encodes information the user needs: a priority, a state, a category. if you
+can't say what a color *means* in one word, it shouldn't be there.
+
+| role | nord | hex | means |
+|------|------|-----|-------|
+| `error` | nord11 | `#BF616A` | destructive, overdue, high priority `(A)` |
+| `warning` | nord13 | `#EBCB8B` | due soon, needs attention, priority `(B)` |
+| `success` | nord14 | `#A3BE8C` | done, healthy, confirmed |
+| `accentMuted` | nord9 | `#81A1C1` | a secondary/quieter accent |
+| — | nord15 | `#B48EAD` | a spare category hue (projects/contexts) |
+
+rules of thumb:
+- accent (`#88C0D0`) marks *the interactive/primary thing* — the top hit, the
+  focused field, today.
+- aurora marks *state on content* — a task's priority, a due date, completion.
+- never use aurora just to make a screen livelier. grey is not a problem to fix.
+
+## type
+
+there is exactly one font: **monospace** (`FontFamily.Monospace`). hierarchy
+comes from size, weight, case, and tracking — never from a second typeface.
+
+| role | size | weight | case | tracking | example |
+|------|------|--------|------|----------|---------|
+| hero / clock | huge, canvas-drawn | — | — | — | the dot-matrix time |
+| page title | 28sp | bold | **lower** | 2sp | `settings` |
+| body / item | 15–16sp | medium | lower / as-is | 0–1sp | a task, a result |
+| input | 18sp | normal | lower | 0 | the search field |
+| micro-label | 12–13sp | bold | **UPPER** | 2–3sp | `CALENDAR`, `APPS` |
+| caption / hint | 13–14sp | normal | lower | 0 | dimmed empty states |
+
+the casing rule is the heart of the voice:
+
+- **lowercase** for anything the user reads as language — titles, items,
+  placeholders, hints. `search`, `monkey dir`, `no tasks yet`.
+- **UPPERCASE + wide tracking** for structural micro-labels that act as
+  signposts, not sentences — section headers, the calendar month, weekday
+  initials. these are the "engineered" nothing-os touch. use them sparingly;
+  they lose power if everything shouts.
+- **leave user data alone.** app names, contact names, and task text keep their
+  original casing. we style *our* chrome, not *their* content.
+
+no emoji in our own strings. no title case, ever.
+
+## space & shape
+
+spacing lives on a **4dp grid**. reach for these before inventing a value:
+
+`4 · 8 · 12 · 16 · 20 · 24 · 28 · 48`
+
+established rhythms (keep them consistent across screens):
+
+- page edge padding: **20dp** horizontal.
+- pages begin **48dp** from the top.
+- list item gaps: **4dp** (tight rows) to **12dp** (cards).
+- section spacing: **20–28dp**.
+
+corners are soft but not bubbly. one radius per element size:
+
+- **28dp** — big feature cards (the calendar card).
+- **20dp** — standard cards, the search field, shortcut tiles, setting groups.
+- **12dp** — small inline chips / the highlighted result.
+- **full circle** — dots, today's date, avatars, status pips.
+
+**dots are the motif.** the page indicator, the calendar bullet, today's marker,
+and the clock itself are all dots. lean into it: prefer a small filled circle
+(8dp) over an icon or a line whenever you need to mark, bullet, or indicate
+something. it ties every screen back to the clock.
+
+borders are hairlines: **1dp** in `subtle`. use them to show structure (a
+non-today day cell, a divider) rather than to decorate.
+
+## motion
+
+quiet and mechanical, like the hardware it's pretending to be.
+
+- transitions are short and functional; nothing bounces or flourishes.
+- the horizontal pager is the primary navigation — respect it, don't fight it
+  with competing swipe gestures.
+- state changes (a task completing, the clock ticking) should feel like a
+  segment flipping, not a celebration. no confetti, no springy overshoot.
+
+## applying it — per screen
+
+the anchor is done. here's the direction for the rest so they catch up to it.
+
+- **home** — already close. clock + calendar own the top; quick-launch sits
+  quietly at the bottom in muted grey. shortcut tiles are structure, not color —
+  a label in `foreground`, the tile in `surface`, no accent unless pressed.
+- **search** — the field is the one loud thing: `surface`, 20dp radius,
+  monospace 18sp, `accent` cursor. results are a plain lowercase list under
+  UPPERCASE source labels (`APPS`, `SETTINGS`). only the top hit earns the
+  accent — a filled 12dp card + accent title — because it's what enter opens.
+- **todo / work** — this is where aurora earns its keep. lowercase task text in
+  `foreground`; priority `(A)/(B)` as a colored pip or badge (`error`/`warning`);
+  completed tasks drop to `mutedForeground` with `success` marking done.
+  projects/contexts, if shown, are quiet — muted, or one spare hue, never a
+  rainbow. empty state is a single dimmed lowercase line: `no tasks`.
+- **settings** — the most utilitarian screen; keep it flattest. a `settings`
+  title, grouped rows in a `surface` card, lowercase labels, values in
+  `mutedForeground`, a `subtle` chevron. no accent unless something is actively
+  on or actionable.
+
+## the taste test
+
+before you ship a screen, check:
+
+- [ ] could it sit under the dot-matrix clock without looking out of place?
+- [ ] is there exactly **one** loud element, and is everything else muted?
+- [ ] does every bit of color *mean* something you can name in a word?
+- [ ] is our chrome lowercase, and are UPPERCASE labels reserved for signposts?
+- [ ] is everything on the 4dp grid, with baselines and dots that actually line
+      up? (scuffed is a voice, not an excuse.)
+
+if all five pass, it's ugly in the right way.
