@@ -23,7 +23,7 @@ APK output: `launcher/app/build/outputs/apk/debug/app-debug.apk`
 
 - `app/src/main/java/com/uglyos/launcher/MainActivity.kt` — home screen + app drawer
 - `app/src/main/AndroidManifest.xml` — registers as HOME, queries launchable apps
-- `app/src/main/res/` — icon (adaptive), theme, strings
+- `app/src/main/res/` — icon (adaptive, Nord-themed monkey), theme, strings
 
 ## Notes
 
