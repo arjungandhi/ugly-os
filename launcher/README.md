@@ -25,6 +25,21 @@ APK output: `launcher/app/build/outputs/apk/debug/app-debug.apk`
 - `app/src/main/java/com/uglyos/launcher/Shortcuts.kt` — home-screen quick-launch grid
 - `app/src/main/AndroidManifest.xml` — registers as HOME, queries launchable apps
 - `app/src/main/res/` — icon (adaptive, Nord-themed monkey), theme, strings
+- `common/src/main/java/com/uglyos/common/theme/` — shared Nord theme, exposed as a library module
+- `common/src/main/java/com/uglyos/common/todo/` — todo.txt parsing/editing library
+
+## todo.txt library
+
+`com.uglyos.common.todo` reads and writes [todo.txt](https://github.com/todotxt/todo.txt)
+files. `Task` is a parsed line (completion, priority, dates, and inline
+`+project`/`@context`/`key:value` tags); `TodoList` is the ordered collection with
+add/update/remove/filter/sort; `TodoFile` loads and atomically saves a file.
+
+```kotlin
+val todos = TodoFile(File(dir, "todo.txt")).load()
+todos.add("(A) call mom @phone due:2026-07-01")
+todos.update(0) { it.complete(LocalDate.now()) }
+```
 
 ## Notes
 
