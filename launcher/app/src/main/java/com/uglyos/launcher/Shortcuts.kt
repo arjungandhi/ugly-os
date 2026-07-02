@@ -29,6 +29,7 @@ import com.uglyos.common.theme.UglyTheme
 private const val BEEPER_PACKAGE = "com.beeper.android"
 private const val GRAYJAY_PACKAGE = "com.futo.platformplayer"
 private const val WALLET_PACKAGE = "com.google.android.apps.walletnfcrel"
+private const val HOME_ASSISTANT_PACKAGE = "io.homeassistant.companion.android"
 
 /**
  * A home-screen quick-launch entry. Each resolves to an *implicit* intent
@@ -44,6 +45,7 @@ enum class Shortcut(val label: String) {
     VIDEOS("videos"),
     CAMERA("camera"),
     WALLET("wallet"),
+    HOME_ASSISTANT("ha"),
 }
 
 /** Build the launch intent for a shortcut, or null if none can be resolved. */
@@ -56,6 +58,7 @@ private fun Shortcut.intent(context: Context): Intent? = when (this) {
     Shortcut.VIDEOS -> context.packageManager.getLaunchIntentForPackage(GRAYJAY_PACKAGE)
     Shortcut.CAMERA -> Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA)
     Shortcut.WALLET -> context.packageManager.getLaunchIntentForPackage(WALLET_PACKAGE)
+    Shortcut.HOME_ASSISTANT -> context.packageManager.getLaunchIntentForPackage(HOME_ASSISTANT_PACKAGE)
 }
 
 /** A MAIN intent restricted to a well-known launcher app category. */

@@ -28,6 +28,7 @@
         <package android:name="com.beeper.android" />
         <package android:name="com.futo.platformplayer" />
         <package android:name="com.google.android.apps.walletnfcrel" />
+        <package android:name="io.homeassistant.companion.android" />
     </queries>
 
     <application
