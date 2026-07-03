@@ -63,7 +63,10 @@ import com.uglyos.common.notes.Note
 import com.uglyos.common.notes.NotesDir
 import com.uglyos.common.theme.UglyTheme
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 
@@ -99,8 +102,9 @@ private fun Note.preview(): String =
  * listed newest-first and watched with FileObserver, so changes (from edits here
  * or synced in by Syncthing) appear live; it also reloads on resume. A search
  * field narrows the list by title or body. Tapping a note opens the full-screen
- * editor on it; "new note" opens a blank one. Saves and deletes go through
- * [NotesDir], run off the main thread, then reload the list.
+ * editor on it; "new note" opens a blank one. Edits autosave through [NotesDir] as
+ * you pause typing, on close, and when the app backgrounds; deletes go the same way.
+ * All of it runs off the main thread, then reloads the list.
  */
 @Composable
 fun NotesPage() {
@@ -140,18 +144,6 @@ fun NotesPage() {
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(lifeObserver)
             observer?.stopWatching()
-        }
-    }
-
-    // Mutations run off the main thread, then reload the list directly. We don't
-    // wait on the FileObserver for our own edits: it watches emulated external
-    // storage (where inotify events are dropped) and the tmp-file+rename save
-    // emits a burst of events, so a local edit would only show up intermittently.
-    // The observer stays for external (Syncthing) changes.
-    fun mutate(block: () -> Unit) = scope.launch {
-        state = withContext(Dispatchers.IO) {
-            block()
-            loadNotesState(context)
         }
     }
 
@@ -216,55 +208,147 @@ fun NotesPage() {
     }
 
     editing?.let { edit ->
-        NoteEditor(
-            edit = edit,
-            onDismiss = { editing = null },
-            onSave = { title, body ->
-                mutate {
-                    val dir = Settings.notesDir(context) ?: return@mutate
-                    val note = edit.note
-                    when {
-                        // Nothing left in it: discard a brand-new note, or delete an
-                        // existing one emptied out (mirrors clearing a todo task).
-                        title.isBlank() && body.isBlank() -> if (note != null) NotesDir(dir).delete(note)
-                        // A cleared title on an existing note keeps its filename
-                        // rather than silently renaming the note to "untitled".
-                        else -> {
-                            val finalTitle = if (title.isBlank() && note != null) note.title else title
-                            NotesDir(dir).save(note, finalTitle, body)
-                        }
+        // Editor state, reset whenever a different note is opened. `saved` is the
+        // note as it currently lives on disk (null until first written, or after a
+        // blank note is discarded). `pristine` is the raw text last written, so we
+        // can tell a real edit from the untouched load — and, since it's the raw
+        // input, comparing against it (not the sanitized filename) never mistakes a
+        // clean save for a change and re-saves in a loop.
+        var title by remember(edit) { mutableStateOf(edit.note?.title ?: "") }
+        var body by remember(edit) { mutableStateOf(edit.note?.body ?: "") }
+        var saved by remember(edit) { mutableStateOf(edit.note) }
+        var pristine by remember(edit) {
+            mutableStateOf((edit.note?.title ?: "") to (edit.note?.body ?: ""))
+        }
+        // Autosave, the close and pause flushes, delete and the open-in handoff all
+        // mutate the same note file. `saveLock` funnels every one of them through a
+        // single serialized writer so they can't overlap on disk (racing writes
+        // spawn " 2" duplicates or resurrect a just-deleted note); `discarded` is
+        // set by delete so a write already queued behind it can't recreate the file.
+        val saveLock = remember(edit) { Mutex() }
+        var discarded by remember(edit) { mutableStateOf(false) }
+
+        fun dirty() = (title to body) != pristine
+
+        // The one writer. Persists a text snapshot and updates `saved`/`pristine`
+        // in-lock, so the next serialized write renames from the file this one left
+        // (not a stale original) — retitling never piles up files. A cleared title
+        // on an existing note keeps its filename; a fully-blank note is left
+        // unwritten (or an existing one deleted). No-op once the note is discarded.
+        suspend fun write(t: String, b: String) = saveLock.withLock {
+            if (discarded) return@withLock
+            val next = withContext(Dispatchers.IO) {
+                val dir = Settings.notesDir(context) ?: return@withContext saved
+                val trimmed = t.trim()
+                when {
+                    trimmed.isBlank() && b.isBlank() -> {
+                        saved?.let { NotesDir(dir).delete(it) }
+                        null
+                    }
+                    else -> {
+                        val finalTitle = if (trimmed.isBlank()) saved?.title ?: trimmed else trimmed
+                        NotesDir(dir).save(saved, finalTitle, b)
                     }
                 }
-                editing = null
-            },
-            // Only an already-saved note has a file to hand off. Persist the current
-            // edits first (so the external editor sees them), then open its file; a
-            // cleared title keeps the note's own name rather than becoming "untitled".
-            onOpenExternal = edit.note?.let { note ->
-                { title, body ->
+            }
+            saved = next
+            pristine = t to b
+        }
+
+        // Close the editor. Snapshot the text and flush any unsaved edit in the
+        // page scope (which outlives this block), so dismissing mid-edit never
+        // strands a keystroke the debounce hadn't reached yet.
+        fun close() {
+            val flush = dirty()
+            val t = title
+            val b = body
+            editing = null
+            scope.launch {
+                if (flush) write(t, b)
+                reload()
+            }
+        }
+
+        // Autosave: after a brief pause in typing, write the note. Keyed on the text
+        // so each keystroke restarts the timer; the dirty check skips the pristine
+        // load so opening a note doesn't rewrite it. The (t, b) snapshot is taken
+        // here, before the write suspends, so a keystroke landing mid-write isn't
+        // mistaken for already-saved.
+        LaunchedEffect(edit, title, body) {
+            if (!dirty()) return@LaunchedEffect
+            val t = title
+            val b = body
+            delay(600)
+            write(t, b)
+        }
+
+        // Backgrounding mid-edit flushes too, in case the app is dropped before the
+        // debounce fires. Runs in the page scope so the pause doesn't cancel it.
+        DisposableEffect(edit) {
+            val obs = LifecycleEventObserver { _, event ->
+                if (event == Lifecycle.Event.ON_PAUSE && dirty()) {
+                    val t = title
+                    val b = body
+                    scope.launch { write(t, b) }
+                }
+            }
+            lifecycleOwner.lifecycle.addObserver(obs)
+            onDispose { lifecycleOwner.lifecycle.removeObserver(obs) }
+        }
+
+        NoteEditor(
+            title = title,
+            onTitleChange = { title = it },
+            body = body,
+            onBodyChange = { body = it },
+            autofocusTitle = edit.note == null,
+            resetKey = edit,
+            onDismiss = { close() },
+            // The handoff flushes through the same writer, then opens whatever file
+            // `saved` now names — read after the serialized write, so an autosave
+            // rename can't leave it on a stale path.
+            onOpenExternal = if (saved != null) {
+                {
+                    val t = title
+                    val b = body
                     scope.launch {
+                        write(t, b)
+                        val note = saved
                         val dir = Settings.notesDir(context)
-                        if (dir == null) {
-                            editing = null
-                            return@launch
+                        val opened = if (note != null && dir != null) {
+                            openNoteExternally(context, File(dir, note.title + ".md"))
+                        } else {
+                            false
                         }
-                        val saved = withContext(Dispatchers.IO) {
-                            val finalTitle = if (title.isBlank()) note.title else title
-                            NotesDir(dir).save(note, finalTitle, body)
-                        }
-                        val opened = openNoteExternally(context, File(dir, saved.title + ".md"))
-                        state = withContext(Dispatchers.IO) { loadNotesState(context) }
+                        reload()
                         if (opened) editing = null
                     }
                 }
+            } else {
+                null
             },
-            onDelete = edit.note?.let { note ->
+            // Delete goes through the same lock and marks the session discarded, so a
+            // write already in flight can't bring the note back; it removes whatever
+            // `saved` names at that point, not a capture that a rename may have staled.
+            onDelete = if (saved != null) {
                 {
-                    mutate {
-                        Settings.notesDir(context)?.let { NotesDir(it).delete(note) }
-                    }
+                    discarded = true
                     editing = null
+                    scope.launch {
+                        saveLock.withLock {
+                            val note = saved
+                            if (note != null) {
+                                withContext(Dispatchers.IO) {
+                                    Settings.notesDir(context)?.let { NotesDir(it).delete(note) }
+                                }
+                                saved = null
+                            }
+                        }
+                        reload()
+                    }
                 }
+            } else {
+                null
             },
         )
     }
@@ -386,33 +470,34 @@ private fun NoteRow(note: Note, onOpen: () -> Unit) {
  * The full-screen note editor. A near-full-height [ModalBottomSheet] — the same
  * sheet the todo editor uses, so it isolates the home pager's swipes and insets
  * itself past the nav bar and keyboard for free (a raw Dialog does neither). A
- * single-line title field (the filename) sits over a large scrollable body field;
- * a pinned action row echoes the todo sheet — a tap-to-arm [DeleteAction] on the
- * left (dropped for a brand-new note), a muted "open in…" handoff, and the primary
- * bold `accent` save on the right. Save hands the raw title and body back to the
- * caller, which persists via [NotesDir].
+ * single-line title field (the filename) sits over a large scrollable body field.
+ * Edits autosave (the caller persists as typing pauses and again on close), so the
+ * pinned action row carries no save: a tap-to-arm [DeleteAction] on the left (shown
+ * once the note exists), a muted "open in…" handoff, and a bold `done` on the right
+ * that just dismisses. The editor is a pure view — the caller owns the text state.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun NoteEditor(
-    edit: NoteEdit,
+    title: String,
+    onTitleChange: (String) -> Unit,
+    body: String,
+    onBodyChange: (String) -> Unit,
+    autofocusTitle: Boolean,
+    resetKey: Any?,
     onDismiss: () -> Unit,
-    onSave: (title: String, body: String) -> Unit,
-    onOpenExternal: ((title: String, body: String) -> Unit)?,
+    onOpenExternal: (() -> Unit)?,
     onDelete: (() -> Unit)?,
 ) {
     val colors = UglyTheme.colors
     val focusRequester = remember { FocusRequester() }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    var title by remember(edit) { mutableStateOf(edit.note?.title ?: "") }
-    var body by remember(edit) { mutableStateOf(edit.note?.body ?: "") }
-
     // A brand-new blank note lands with the cursor in the title; an existing one
     // opens quietly so a stray keystroke doesn't rename it.
-    LaunchedEffect(edit) {
-        if (edit.note == null) {
-            kotlinx.coroutines.delay(100)
+    LaunchedEffect(resetKey) {
+        if (autofocusTitle) {
+            delay(100)
             runCatching { focusRequester.requestFocus() }
         }
     }
@@ -435,7 +520,7 @@ private fun NoteEditor(
         ) {
             BasicTextField(
                 value = title,
-                onValueChange = { title = it },
+                onValueChange = onTitleChange,
                 singleLine = true,
                 textStyle = TextStyle(
                     color = colors.foreground,
@@ -469,7 +554,7 @@ private fun NoteEditor(
             ) {
                 BasicTextField(
                     value = body,
-                    onValueChange = { body = it },
+                    onValueChange = onBodyChange,
                     textStyle = TextStyle(
                         color = colors.foreground,
                         fontSize = 15.sp,
@@ -494,30 +579,30 @@ private fun NoteEditor(
             Hairline(Modifier.padding(top = 16.dp))
             Spacer(Modifier.height(8.dp))
             NoteActions(
-                onSave = { onSave(title.trim(), body) },
-                onOpen = onOpenExternal?.let { open -> { open(title.trim(), body) } },
+                onDone = onDismiss,
+                onOpen = onOpenExternal,
                 onDelete = onDelete,
-                resetKey = edit,
+                resetKey = resetKey,
             )
         }
     }
 }
 
 /**
- * The editor's pinned action row, echoing the todo sheet's left/right split: the
- * quiet tap-to-arm [DeleteAction] on the left (dropped for a brand-new note), a
- * muted "open in…" handoff in the middle for an existing note, and the primary
- * save on the right. [resetKey] disarms delete when the note changes.
+ * The editor's pinned action row: the quiet tap-to-arm [DeleteAction] on the left
+ * (shown once the note has been written), a muted "open in…" handoff in the middle,
+ * and a bold `done` on the right. Edits have already autosaved, so `done` only
+ * dismisses the editor. [resetKey] disarms delete when the note changes.
  */
 @Composable
 private fun NoteActions(
-    onSave: () -> Unit,
+    onDone: () -> Unit,
     onOpen: (() -> Unit)?,
     onDelete: (() -> Unit)?,
     resetKey: Any?,
 ) {
     // Children align on their text baselines, not their centers, so the smaller
-    // "delete"/"open" and the bigger "save" sit on one line despite the size gap.
+    // "delete"/"open" and the bigger "done" sit on one line despite the size gap.
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -530,7 +615,7 @@ private fun NoteActions(
         if (onOpen != null) {
             OpenAction(onClick = onOpen, modifier = Modifier.alignByBaseline())
         }
-        SaveAction(enabled = true, onClick = onSave, modifier = Modifier.alignByBaseline())
+        SaveAction(enabled = true, onClick = onDone, label = "done", modifier = Modifier.alignByBaseline())
     }
 }
 

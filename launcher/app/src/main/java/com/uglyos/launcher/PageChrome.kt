@@ -109,15 +109,21 @@ internal fun AddRow(label: String, onClick: () -> Unit) {
 }
 
 /**
- * The primary commit action, right side of a sheet/editor action row: a bold
- * `accent` label — the one loud thing, kept to the text line so nothing pokes past
- * the row's other elements. Goes `subtle` and inert when [enabled] is false.
+ * The primary action, right side of a sheet/editor action row: a bold `accent`
+ * [label] — the one loud thing, kept to the text line so nothing pokes past the
+ * row's other elements. Goes `subtle` and inert when [enabled] is false. Defaults
+ * to "save"; the autosaving notes editor passes "done" for a plain dismiss.
  */
 @Composable
-internal fun SaveAction(enabled: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+internal fun SaveAction(
+    enabled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    label: String = "save",
+) {
     val colors = UglyTheme.colors
     Text(
-        text = "save",
+        text = label,
         color = if (enabled) colors.accent else colors.subtle,
         fontSize = 16.sp,
         fontWeight = FontWeight.Bold,
