@@ -65,8 +65,9 @@ APK output: `launcher/app/build/outputs/apk/debug/app-debug.apk`
   Enter opens. Graded fuzzy scoring plus a frecency boost (`frecency` prefs,
   ~3-day half-life). Add a source with another provider in `Search.kt`.
 - **Todo** — one page over `monkey_dir/atp/todo/todo.txt`. The footer names the
-  active mode (bottom-right); tapping it opens a menu to switch, add, edit, or
-  delete modes. A fresh install is seeded with an "all" mode that shows everything,
+  active mode (bottom-right); tapping it opens a menu where you tap a mode to
+  switch to it, long-press a mode to edit or delete it, and "add mode" makes a
+  new one. A fresh install is seeded with an "all" mode that shows everything,
   editable like any other; you define modes that filter on a `+project`, an
   `@context`, or both — or the inverse (match vs exclude). A scoped mode hides its
   own tag on each row and auto-appends it to tasks

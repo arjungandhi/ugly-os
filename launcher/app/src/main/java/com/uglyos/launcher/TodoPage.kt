@@ -3,9 +3,11 @@ package com.uglyos.launcher
 import android.content.Context
 import android.os.FileObserver
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -311,7 +313,7 @@ fun TodoPage() {
                 // The footer — current mode on the left, "add task" on the right —
                 // is pinned to the bottom, in thumb reach, split from the scrolling
                 // list by a hairline.
-                Box(Modifier.fillMaxWidth().height(1.dp).background(colors.subtle))
+                Hairline()
                 FooterBar(
                     mode = mode.label,
                     onOpenModes = { showModeMenu = true },
@@ -481,8 +483,10 @@ private fun DisclosureCaret(color: Color) {
 
 /**
  * The mode manager: a bottom sheet listing every mode with its selection marker.
- * Tap a row to switch to it (and close); "edit" opens its editor; "add mode" makes
- * a new one. Every mode is editable — the seeded "all" is just an ordinary mode.
+ * Tap a row to switch to it (and close); long-press a row to edit it; "add mode"
+ * makes a new one. Every mode is editable — the seeded "all" is just an ordinary
+ * mode. A hairline splits the switchable list from the "add mode" action, echoing
+ * the page footer's list/action divider.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -525,6 +529,7 @@ private fun ModeMenu(
                     onEdit = { onEdit(i) },
                 )
             }
+            Hairline(Modifier.padding(vertical = 8.dp))
             AddRow(label = "add mode", onClick = onAdd)
         }
     }
@@ -532,48 +537,43 @@ private fun ModeMenu(
 
 /**
  * One row in the [ModeMenu]: a selection marker (filled `accent` when active, a
- * hollow ring otherwise) and the label, tappable to switch, with a trailing "edit".
+ * hollow ring otherwise) and the label. The whole row is one target — tap to
+ * switch to this mode, long-press to edit it — so a row reads as a single
+ * unambiguous control rather than two competing ones.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ModeMenuRow(label: String, active: Boolean, onSelect: () -> Unit, onEdit: () -> Unit) {
     val colors = UglyTheme.colors
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .combinedClickable(onClick = onSelect, onLongClick = onEdit)
+            .padding(vertical = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
-            modifier = Modifier
-                .weight(1f)
-                .clickable(onClick = onSelect)
-                .padding(vertical = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Box(modifier = Modifier.size(DOT_GUTTER), contentAlignment = Alignment.Center) {
-                if (active) {
-                    Box(Modifier.size(10.dp).clip(CircleShape).background(colors.accent))
-                } else {
-                    Box(Modifier.size(10.dp).clip(CircleShape).border(1.5.dp, colors.subtle, CircleShape))
-                }
+        Box(modifier = Modifier.size(DOT_GUTTER), contentAlignment = Alignment.Center) {
+            if (active) {
+                Box(Modifier.size(10.dp).clip(CircleShape).background(colors.accent))
+            } else {
+                Box(Modifier.size(10.dp).clip(CircleShape).border(1.5.dp, colors.subtle, CircleShape))
             }
-            Text(
-                text = label,
-                color = if (active) colors.foreground else colors.mutedForeground,
-                fontSize = 16.sp,
-                fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
-                fontFamily = FontFamily.Monospace,
-            )
         }
         Text(
-            text = "edit",
-            color = colors.mutedForeground,
-            fontSize = 13.sp,
+            text = label,
+            color = if (active) colors.foreground else colors.mutedForeground,
+            fontSize = 16.sp,
+            fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
             fontFamily = FontFamily.Monospace,
-            modifier = Modifier
-                .clickable(onClick = onEdit)
-                .padding(vertical = 10.dp, horizontal = 4.dp),
         )
     }
+}
+
+/** The app's structural divider: a 1dp `subtle` hairline. */
+@Composable
+private fun Hairline(modifier: Modifier = Modifier) {
+    Box(modifier.fillMaxWidth().height(1.dp).background(UglyTheme.colors.subtle))
 }
 
 /** A dimmed message for empty/unconfigured states. */
@@ -852,7 +852,7 @@ private fun TaskSheet(
 
             SheetAction(label = "save", color = colors.accent, onClick = { onSave(assemble()) })
             if (onDelete != null) {
-                Box(Modifier.fillMaxWidth().height(1.dp).background(colors.subtle))
+                Hairline()
                 SheetAction(label = "delete", color = colors.error, onClick = onDelete)
             }
         }
@@ -935,10 +935,11 @@ private fun ModeSheet(
             SheetField(value = project, onValueChange = { project = it }, placeholder = "+project")
             SheetField(value = context, onValueChange = { context = it }, placeholder = "@context")
 
+            // exclude is warning-colored: it subtracts from the view, not adds.
             LabeledSection("filter") {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Chip("match", selected = !invert, color = colors.accent) { invert = false }
-                    Chip("exclude", selected = invert, color = colors.accent) { invert = true }
+                    Chip("exclude", selected = invert, color = colors.warning) { invert = true }
                 }
             }
 
@@ -948,7 +949,7 @@ private fun ModeSheet(
                 onClick = { if (label.isNotBlank()) onSave(assemble()) },
             )
             if (onDelete != null) {
-                Box(Modifier.fillMaxWidth().height(1.dp).background(colors.subtle))
+                Hairline()
                 SheetAction(label = "delete", color = colors.error, onClick = onDelete)
             }
         }
