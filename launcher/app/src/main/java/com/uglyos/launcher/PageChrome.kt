@@ -136,10 +136,11 @@ internal fun SaveAction(
 }
 
 /**
- * The destructive action, deliberately quiet — small, dotless, `error`-colored — so
+ * The destructive action, deliberately quiet at rest — small, dotless, muted — so
  * it can't be mistaken for the loud save on the other end of the row. The first tap
- * arms it (the label flips to a confirm prompt); only a second tap deletes, and it
- * disarms after a beat if you don't. One deliberate confirm, no modal-on-modal.
+ * arms it: the label flips to a confirm prompt and it fills with `error`, so the
+ * escalation reads at a glance, not just in the text. Only a second tap deletes,
+ * and it disarms after a beat if you don't. One deliberate confirm, no modal-on-modal.
  * [resetKey] re-arms from scratch when the sheet moves to a different item.
  */
 @Composable
@@ -153,8 +154,8 @@ internal fun DeleteAction(onDelete: () -> Unit, resetKey: Any?, modifier: Modifi
         }
     }
     Text(
-        text = if (armed) "confirm" else "delete",
-        color = colors.error,
+        text = if (armed) "confirm?" else "delete",
+        color = if (armed) colors.background else colors.error,
         fontSize = 13.sp,
         fontWeight = if (armed) FontWeight.Bold else FontWeight.Normal,
         fontFamily = FontFamily.Monospace,
@@ -162,6 +163,7 @@ internal fun DeleteAction(onDelete: () -> Unit, resetKey: Any?, modifier: Modifi
             // Tween, not spring — the label swaps like a segment flipping, no bounce.
             .animateContentSize(animationSpec = tween(durationMillis = 120))
             .clip(RoundedCornerShape(12.dp))
+            .background(if (armed) colors.error else colors.background)
             .clickable { if (armed) onDelete() else armed = true }
             .padding(vertical = 12.dp, horizontal = 4.dp),
     )
