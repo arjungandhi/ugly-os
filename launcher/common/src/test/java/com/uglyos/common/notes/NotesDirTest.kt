@@ -31,7 +31,57 @@ class NotesDirTest {
         val listed = notes().list()
 
         assertEquals(listOf("new", "mid", "old"), listed.map { it.title })
-        assertEquals("new body", listed[0].body)
+        assertEquals("new body", listed[0].preview)
+    }
+
+    @Test fun listPreviewIsFirstNonBlankLine() {
+        seed("note", "\n\n  \nfirst real line\nsecond", 1_000L)
+
+        val listed = notes().list()
+
+        assertEquals("first real line", listed[0].preview)
+    }
+
+    @Test fun listPreviewIsBlankWhenBodyEmpty() {
+        seed("empty", "\n   \n", 1_000L)
+
+        assertEquals("", notes().list()[0].preview)
+    }
+
+    @Test fun readReturnsFullBody() {
+        seed("doc", "line one\nline two", 5_000L)
+
+        val note = notes().read("doc")
+
+        assertEquals("doc", note!!.title)
+        assertEquals("line one\nline two", note.body)
+    }
+
+    @Test fun readMissingNoteIsNull() {
+        assertNull(notes().read("nope"))
+    }
+
+    @Test fun searchMatchesTitleOrBody() {
+        seed("groceries", "milk and eggs", 3_000L)
+        seed("meeting", "buy milk on the way", 2_000L)
+        seed("unrelated", "nothing here", 1_000L)
+
+        val hits = notes().search("milk").map { it.title }
+
+        assertEquals(listOf("groceries", "meeting"), hits)
+    }
+
+    @Test fun searchIsCaseInsensitive() {
+        seed("Recipe", "Add Flour", 1_000L)
+
+        assertEquals(listOf("Recipe"), notes().search("flour").map { it.title })
+    }
+
+    @Test fun searchBlankQueryListsEverything() {
+        seed("a", "one", 2_000L)
+        seed("b", "two", 1_000L)
+
+        assertEquals(listOf("a", "b"), notes().search("  ").map { it.title })
     }
 
     @Test fun listIgnoresNonMarkdownFiles() {

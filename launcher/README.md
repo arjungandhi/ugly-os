@@ -86,8 +86,10 @@ APK output: `launcher/app/build/outputs/apk/debug/app-debug.apk`
   across restarts. Add/edit/complete tasks (done archived to done.txt); live-reload
   via `FileObserver` so Syncthing edits show up. Modes persist in `todo_modes` prefs.
 - **Notes** — a page over `notes_dir`, one `<title>.md` file per note. The list is
-  newest-modified first; a search field narrows it by title or body. Tapping a note
-  opens a full-screen editor (single-line title over a scrollable markdown body);
+  newest-modified first; a search field narrows it by title or body. To stay light
+  on a large dir, the list reads only each note's preview line (not its body) and
+  search streams the files one at a time; a note's body loads only when opened.
+  Tapping a note opens a full-screen editor (single-line title over a scrollable markdown body);
   "new note" opens a blank one, and the editor's armed delete removes it. Edits
   autosave (as typing pauses, on close, and when the app backgrounds) — no save
   button, just `done` to dismiss. Writes and deletes run off the main thread through

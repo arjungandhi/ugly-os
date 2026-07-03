@@ -12,22 +12,56 @@ import java.io.File
  */
 class NotesDir(val dir: File) {
 
-    /** Every `*.md` note in [dir], newest-modified first. Skips unreadable files. */
-    fun list(): List<Note> {
-        val files = dir.listFiles() ?: return emptyList()
-        return files
-            .filter { it.isFile && it.extension.equals("md", ignoreCase = true) }
+    /**
+     * Every `*.md` note in [dir] as row [NoteMeta], newest-modified first. Reads
+     * each file only far enough to find its first non-blank line for the preview —
+     * never the whole body — so listing a large dir stays cheap. Skips unreadable
+     * files. Bodies are loaded on demand by [read] when a note is opened.
+     */
+    fun list(): List<NoteMeta> =
+        mdFiles()
             .mapNotNull { file ->
+                val preview = try {
+                    previewLine(file)
+                } catch (e: Exception) {
+                    return@mapNotNull null
+                }
+                NoteMeta(file.nameWithoutExtension, preview, file.lastModified())
+            }
+            .sortedByDescending { it.lastModified }
+
+    /** The full [Note] named [title], or null if it can't be read. */
+    fun read(title: String): Note? {
+        val file = File(dir, "$title.md")
+        val body = try {
+            file.readText()
+        } catch (e: Exception) {
+            return null
+        }
+        return Note(title, body, file.lastModified())
+    }
+
+    /**
+     * Notes whose title or body contains [query] (case-insensitive), as row
+     * [NoteMeta], newest-modified first. Streams the dir one file at a time and
+     * keeps only the matches, so a search over a large dir holds just one body in
+     * memory at once rather than all of them. A blank [query] lists everything.
+     */
+    fun search(query: String): List<NoteMeta> {
+        val q = query.trim()
+        if (q.isEmpty()) return list()
+        return mdFiles()
+            .mapNotNull { file ->
+                val title = file.nameWithoutExtension
                 val body = try {
                     file.readText()
                 } catch (e: Exception) {
                     return@mapNotNull null
                 }
-                Note(
-                    title = file.nameWithoutExtension,
-                    body = body,
-                    lastModified = file.lastModified(),
-                )
+                val matches = title.contains(q, ignoreCase = true) ||
+                    body.contains(q, ignoreCase = true)
+                if (!matches) return@mapNotNull null
+                NoteMeta(title, previewOf(body), file.lastModified())
             }
             .sortedByDescending { it.lastModified }
     }
@@ -93,8 +127,30 @@ class NotesDir(val dir: File) {
         }
     }
 
+    /** The `.md` files in [dir], unsorted; empty if the dir can't be listed. */
+    private fun mdFiles(): List<File> =
+        dir.listFiles()
+            ?.filter { it.isFile && it.extension.equals("md", ignoreCase = true) }
+            ?: emptyList()
+
     companion object {
         private const val UNTITLED = "untitled"
+
+        // Two spellings of the same rule — "first non-blank line, trimmed" — kept
+        // separate only so [list] can stop reading early while [search], which
+        // already holds the whole body, doesn't re-read. Keep them in lockstep: a
+        // change to the trim/blank rule in one must land in the other, or a note's
+        // list preview and its search preview will diverge.
+
+        /** First non-blank line of [file], trimmed; "" if none. Reads lazily, stops early. */
+        private fun previewLine(file: File): String =
+            file.bufferedReader().use { reader ->
+                reader.lineSequence().firstOrNull { it.isNotBlank() }?.trim().orEmpty()
+            }
+
+        /** First non-blank line of an already-loaded [body], trimmed; "" if none. */
+        private fun previewOf(body: String): String =
+            body.lineSequence().firstOrNull { it.isNotBlank() }?.trim().orEmpty()
 
         // Reserved on common filesystems, plus control chars. Spaces and hyphens
         // are legal and kept.

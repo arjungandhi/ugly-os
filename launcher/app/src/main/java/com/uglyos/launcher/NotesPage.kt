@@ -60,6 +60,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.uglyos.common.notes.Note
+import com.uglyos.common.notes.NoteMeta
 import com.uglyos.common.notes.NotesDir
 import com.uglyos.common.theme.UglyTheme
 import kotlinx.coroutines.Dispatchers
@@ -78,8 +79,11 @@ private sealed interface NotesState {
     object NoAccess : NotesState
     /** Access granted, dir readable, but it holds no notes yet. */
     object Empty : NotesState
-    /** Every note in the dir, newest-modified first. Search filters this in memory. */
-    data class Loaded(val notes: List<Note>) : NotesState
+    /**
+     * Every note in the dir as row metadata (no bodies), newest-modified first.
+     * This is the no-search view; a search streams the dir separately.
+     */
+    data class Loaded(val notes: List<NoteMeta>) : NotesState
 }
 
 /** List the notes dir, resolving to the right state. */
@@ -92,10 +96,6 @@ private fun loadNotesState(context: Context): NotesState {
 
 /** A pending new note ([note] null) or an edit of an existing one, driving the editor. */
 private data class NoteEdit(val note: Note?)
-
-/** The first non-blank line of a note's body, for the row preview. Blank if none. */
-private fun Note.preview(): String =
-    body.lineSequence().firstOrNull { it.isNotBlank() }?.trim().orEmpty()
 
 /**
  * A markdown notes page backed by a directory of `<title>.md` files. The dir is
@@ -113,14 +113,42 @@ fun NotesPage() {
     val scope = rememberCoroutineScope()
     var state by remember { mutableStateOf<NotesState>(NotesState.NoDir) }
     var query by remember { mutableStateOf("") }
+    // Search results (title-or-body matches) for the current query, streamed off the
+    // dir. Null means no active search — show the full [NotesState.Loaded] list.
+    var results by remember { mutableStateOf<List<NoteMeta>?>(null) }
     var editing by remember { mutableStateOf<NoteEdit?>(null) }
     val lifecycleOwner = LocalLifecycleOwner.current
 
     // Reads run off the main thread: unlike the single small todo.txt, a notes dir
-    // can hold many/large files and loadNotesState reads each one whole (search
-    // needs the bodies in memory), so a synchronous load would jank the ui.
+    // can hold many files, so even the metadata-only listing (a preview line per
+    // file) is done off the ui thread to keep resume/refresh smooth.
     fun reload() = scope.launch {
         state = withContext(Dispatchers.IO) { loadNotesState(context) }
+    }
+
+    // Search streams the dir off the main thread, matching title or body, and keeps
+    // only the hits — so it never holds every note body in memory the way an
+    // in-memory filter would. Debounced, and keyed on `query` alone: keying on
+    // `state` too would restart the search (blanking results to the title-only
+    // placeholder) on every unrelated dir reload — a Syncthing write, a resume, or
+    // our own autosave — flickering the results. So matches reflect the dir as of
+    // when the query last changed; retyping refreshes them. A cleared query drops
+    // back to the full list; a stale result is cleared up front so the placeholder
+    // shows during the debounce instead of the previous query's matches.
+    LaunchedEffect(query) {
+        val q = query.trim()
+        if (q.isEmpty()) {
+            results = null
+            return@LaunchedEffect
+        }
+        results = null
+        delay(200)
+        val dir = Settings.notesDir(context)
+        results = if (dir != null) {
+            withContext(Dispatchers.IO) { NotesDir(dir).search(q) }
+        } else {
+            emptyList()
+        }
     }
 
     DisposableEffect(lifecycleOwner) {
@@ -175,15 +203,14 @@ fun NotesPage() {
             }
             is NotesState.Loaded -> {
                 val q = query.trim()
-                val visible =
-                    if (q.isEmpty()) {
-                        s.notes
-                    } else {
-                        s.notes.filter {
-                            it.title.contains(q, ignoreCase = true) ||
-                                it.body.contains(q, ignoreCase = true)
-                        }
-                    }
+                // No query: the full list. With a query: the streamed matches once
+                // they land; until then, an instant title-only filter of the loaded
+                // metadata so typing feels responsive before the disk search returns.
+                val visible = when {
+                    q.isEmpty() -> s.notes
+                    results != null -> results!!
+                    else -> s.notes.filter { it.title.contains(q, ignoreCase = true) }
+                }
                 SearchField(value = query, onValueChange = { query = it })
                 Spacer(Modifier.height(16.dp))
                 if (visible.isEmpty()) {
@@ -194,8 +221,28 @@ fun NotesPage() {
                         modifier = Modifier.fillMaxWidth().weight(1f),
                         verticalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
-                        items(visible) { note ->
-                            NoteRow(note = note, onOpen = { editing = NoteEdit(note) })
+                        items(visible) { meta ->
+                            // Rows carry no body, so opening one loads its full text
+                            // off-thread. If the read fails (file synced away or a
+                            // transient error mid-sync), refuse rather than opening a
+                            // blank editor on the real title — that empty body would
+                            // become the editor's baseline and autosave would clobber
+                            // the real note on the first keystroke.
+                            NoteRow(
+                                meta = meta,
+                                onOpen = {
+                                    scope.launch {
+                                        val note = withContext(Dispatchers.IO) {
+                                            Settings.notesDir(context)?.let { NotesDir(it).read(meta.title) }
+                                        }
+                                        if (note != null) {
+                                            editing = NoteEdit(note)
+                                        } else {
+                                            Toast.makeText(context, "couldn't open note", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                },
+                            )
                         }
                     }
                 }
@@ -426,7 +473,7 @@ private fun SearchField(value: String, onValueChange: (String) -> Unit) {
  * Top-aligned so the dot rides the title line when the block is two lines tall.
  */
 @Composable
-private fun NoteRow(note: Note, onOpen: () -> Unit) {
+private fun NoteRow(meta: NoteMeta, onOpen: () -> Unit) {
     val colors = UglyTheme.colors
     Row(
         modifier = Modifier
@@ -444,17 +491,16 @@ private fun NoteRow(note: Note, onOpen: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             Text(
-                text = note.title,
+                text = meta.title,
                 color = colors.foreground,
                 fontSize = 16.sp,
                 fontFamily = FontFamily.Monospace,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            val preview = note.preview()
-            if (preview.isNotEmpty()) {
+            if (meta.preview.isNotEmpty()) {
                 Text(
-                    text = preview,
+                    text = meta.preview,
                     color = colors.mutedForeground,
                     fontSize = 13.sp,
                     fontFamily = FontFamily.Monospace,
