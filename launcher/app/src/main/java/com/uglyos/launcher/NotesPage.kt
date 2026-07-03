@@ -645,9 +645,9 @@ private fun NoteEditor(
 }
 
 /**
- * A small non-interactive save-state dot on the title line: filled [accent][UglyTheme]
- * while an edit is still pending, a hollow subtle ring (echoing the note-row dot) once
- * the autosave has landed. The only feedback the otherwise-silent autosave gives.
+ * A small non-interactive save-state dot on the title line: yellow while an edit is
+ * still pending, green once the autosave has landed. The only feedback the
+ * otherwise-silent autosave gives.
  */
 @Composable
 private fun SaveDot(dirty: Boolean) {
@@ -657,10 +657,7 @@ private fun SaveDot(dirty: Boolean) {
             .padding(start = 12.dp)
             .size(10.dp)
             .clip(CircleShape)
-            .then(
-                if (dirty) Modifier.background(colors.accent)
-                else Modifier.border(1.5.dp, colors.subtle, CircleShape),
-            ),
+            .background(if (dirty) colors.warning else colors.success),
     )
 }
 
