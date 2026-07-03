@@ -54,6 +54,22 @@
         </activity>
 
         <!--
+          Hands a note's .md file to an external editor (the "open in…" action) as
+          a temporary content uri, since a raw file:// path can't be shared to
+          another app. root-path covers the arbitrary notes dir (we hold all-files
+          access anyway).
+        -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
+        <!--
           A no-op notification listener. We never read notifications; being an
           enabled listener is just the credential Android requires to read and
           control active media sessions, which powers the home-screen music bar.

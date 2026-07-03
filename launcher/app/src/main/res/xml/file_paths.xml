@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Notes live in a user-chosen dir anywhere on external storage, so expose the
+  whole filesystem root to the FileProvider. Safe here: we already hold all-files
+  access, and each share only grants a single note's uri, per-launch.
+-->
+<paths>
+    <root-path name="root" path="/" />
+</paths>

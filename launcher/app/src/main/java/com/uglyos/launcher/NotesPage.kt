@@ -1,7 +1,10 @@
 package com.uglyos.launcher
 
+import android.content.ActivityNotFoundException
 import android.content.Context
+import android.content.Intent
 import android.os.FileObserver
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -13,8 +16,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -24,7 +29,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -47,8 +55,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
+import androidx.core.content.FileProvider
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -58,6 +65,7 @@ import com.uglyos.common.theme.UglyTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 
 /** What the notes page has to show once it's tried to read the dir. */
 private sealed interface NotesState {
@@ -229,6 +237,27 @@ fun NotesPage() {
                 }
                 editing = null
             },
+            // Only an already-saved note has a file to hand off. Persist the current
+            // edits first (so the external editor sees them), then open its file; a
+            // cleared title keeps the note's own name rather than becoming "untitled".
+            onOpenExternal = edit.note?.let { note ->
+                { title, body ->
+                    scope.launch {
+                        val dir = Settings.notesDir(context)
+                        if (dir == null) {
+                            editing = null
+                            return@launch
+                        }
+                        val saved = withContext(Dispatchers.IO) {
+                            val finalTitle = if (title.isBlank()) note.title else title
+                            NotesDir(dir).save(note, finalTitle, body)
+                        }
+                        val opened = openNoteExternally(context, File(dir, saved.title + ".md"))
+                        state = withContext(Dispatchers.IO) { loadNotesState(context) }
+                        if (opened) editing = null
+                    }
+                }
+            },
             onDelete = edit.note?.let { note ->
                 {
                     mutate {
@@ -238,6 +267,31 @@ fun NotesPage() {
                 }
             },
         )
+    }
+}
+
+/**
+ * Hand [file] to a real editor via an ACTION_EDIT chooser, granting temporary
+ * read/write on a FileProvider content uri so the picked app edits the actual note
+ * (its changes sync back and reload here). Returns whether an editor took it; shows
+ * a quiet toast and returns false when nothing can handle it.
+ */
+private fun openNoteExternally(context: Context, file: File): Boolean {
+    val uri = try {
+        FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+    } catch (e: IllegalArgumentException) {
+        return false
+    }
+    val edit = Intent(Intent.ACTION_EDIT).apply {
+        setDataAndType(uri, "text/plain")
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+    }
+    return try {
+        context.startActivity(Intent.createChooser(edit, "open in"))
+        true
+    } catch (e: ActivityNotFoundException) {
+        Toast.makeText(context, "no editor app found", Toast.LENGTH_SHORT).show()
+        false
     }
 }
 
@@ -329,22 +383,27 @@ private fun NoteRow(note: Note, onOpen: () -> Unit) {
 }
 
 /**
- * The full-screen note editor, a borderless [Dialog] filling the screen so its
- * scroll and swipes don't leak to the home pager behind it. A single-line title
- * field (the filename) sits over a large scrollable body field; a pinned action
- * row echoes the todo sheet — a tap-to-arm [DeleteAction] on the left (dropped
- * for a brand-new note) and the primary bold `accent` save on the right. Save
- * hands the raw title and body back to the caller, which persists via [NotesDir].
+ * The full-screen note editor. A near-full-height [ModalBottomSheet] — the same
+ * sheet the todo editor uses, so it isolates the home pager's swipes and insets
+ * itself past the nav bar and keyboard for free (a raw Dialog does neither). A
+ * single-line title field (the filename) sits over a large scrollable body field;
+ * a pinned action row echoes the todo sheet — a tap-to-arm [DeleteAction] on the
+ * left (dropped for a brand-new note), a muted "open in…" handoff, and the primary
+ * bold `accent` save on the right. Save hands the raw title and body back to the
+ * caller, which persists via [NotesDir].
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun NoteEditor(
     edit: NoteEdit,
     onDismiss: () -> Unit,
     onSave: (title: String, body: String) -> Unit,
+    onOpenExternal: ((title: String, body: String) -> Unit)?,
     onDelete: (() -> Unit)?,
 ) {
     val colors = UglyTheme.colors
     val focusRequester = remember { FocusRequester() }
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     var title by remember(edit) { mutableStateOf(edit.note?.title ?: "") }
     var body by remember(edit) { mutableStateOf(edit.note?.body ?: "") }
@@ -358,16 +417,21 @@ private fun NoteEditor(
         }
     }
 
-    Dialog(
+    ModalBottomSheet(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false),
+        sheetState = sheetState,
+        containerColor = colors.background,
+        dragHandle = null,
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .background(colors.background)
+                // The sheet fills the screen, so clear the status bar up top and the
+                // keyboard down low, keeping the title and the action row in view.
+                .statusBarsPadding()
                 .padding(horizontal = 20.dp)
-                .padding(top = 48.dp, bottom = 40.dp),
+                .padding(top = 24.dp, bottom = 16.dp)
+                .imePadding(),
         ) {
             BasicTextField(
                 value = title,
@@ -431,6 +495,7 @@ private fun NoteEditor(
             Spacer(Modifier.height(8.dp))
             NoteActions(
                 onSave = { onSave(title.trim(), body) },
+                onOpen = onOpenExternal?.let { open -> { open(title.trim(), body) } },
                 onDelete = onDelete,
                 resetKey = edit,
             )
@@ -440,13 +505,19 @@ private fun NoteEditor(
 
 /**
  * The editor's pinned action row, echoing the todo sheet's left/right split: the
- * quiet tap-to-arm [DeleteAction] on the left (dropped for a brand-new note) and
- * the primary save on the right. [resetKey] disarms delete when the note changes.
+ * quiet tap-to-arm [DeleteAction] on the left (dropped for a brand-new note), a
+ * muted "open in…" handoff in the middle for an existing note, and the primary
+ * save on the right. [resetKey] disarms delete when the note changes.
  */
 @Composable
-private fun NoteActions(onSave: () -> Unit, onDelete: (() -> Unit)?, resetKey: Any?) {
+private fun NoteActions(
+    onSave: () -> Unit,
+    onOpen: (() -> Unit)?,
+    onDelete: (() -> Unit)?,
+    resetKey: Any?,
+) {
     // Children align on their text baselines, not their centers, so the smaller
-    // "delete" and the bigger "save" sit on one line despite the size difference.
+    // "delete"/"open" and the bigger "save" sit on one line despite the size gap.
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -456,7 +527,29 @@ private fun NoteActions(onSave: () -> Unit, onDelete: (() -> Unit)?, resetKey: A
         } else {
             Spacer(Modifier.width(1.dp))
         }
+        if (onOpen != null) {
+            OpenAction(onClick = onOpen, modifier = Modifier.alignByBaseline())
+        }
         SaveAction(enabled = true, onClick = onSave, modifier = Modifier.alignByBaseline())
     }
+}
+
+/**
+ * The handoff to a real editor: a quiet, muted "open in…" — deliberately understated
+ * so save stays the one loud thing. Saves the note first (done by the caller), then
+ * fires an ACTION_EDIT on its file so a purpose-built markdown editor can take over.
+ */
+@Composable
+private fun OpenAction(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Text(
+        text = "open in…",
+        color = UglyTheme.colors.mutedForeground,
+        fontSize = 13.sp,
+        fontFamily = FontFamily.Monospace,
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
+            .padding(vertical = 12.dp, horizontal = 8.dp),
+    )
 }
 
