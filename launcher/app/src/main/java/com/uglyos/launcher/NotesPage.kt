@@ -27,6 +27,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -48,6 +49,8 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -70,6 +73,8 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Locale
 
 /** What the notes page has to show once it's tried to read the dir. */
 private sealed interface NotesState {
@@ -117,6 +122,9 @@ fun NotesPage() {
     // dir. Null means no active search — show the full [NotesState.Loaded] list.
     var results by remember { mutableStateOf<List<NoteMeta>?>(null) }
     var editing by remember { mutableStateOf<NoteEdit?>(null) }
+    // Title of the row currently being opened (read off-thread before the editor
+    // takes over), so a tap gets an immediate, minimal acknowledgement.
+    var loadingTitle by remember { mutableStateOf<String?>(null) }
     val lifecycleOwner = LocalLifecycleOwner.current
 
     // Reads run off the main thread: unlike the single small todo.txt, a notes dir
@@ -212,7 +220,14 @@ fun NotesPage() {
                     else -> s.notes.filter { it.title.contains(q, ignoreCase = true) }
                 }
                 SearchField(value = query, onValueChange = { query = it })
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = if (visible.size == 1) "1 note" else "${visible.size} notes",
+                    color = colors.mutedForeground,
+                    fontSize = 13.sp,
+                    fontFamily = FontFamily.Monospace,
+                )
+                Spacer(Modifier.height(8.dp))
                 if (visible.isEmpty()) {
                     Hint("no matches")
                     Spacer(Modifier.weight(1f))
@@ -230,15 +245,22 @@ fun NotesPage() {
                             // the real note on the first keystroke.
                             NoteRow(
                                 meta = meta,
-                                onOpen = {
+                                loading = loadingTitle == meta.title,
+                                onOpen = onOpen@{
+                                    if (loadingTitle != null) return@onOpen
+                                    loadingTitle = meta.title
                                     scope.launch {
-                                        val note = withContext(Dispatchers.IO) {
-                                            Settings.notesDir(context)?.let { NotesDir(it).read(meta.title) }
-                                        }
-                                        if (note != null) {
-                                            editing = NoteEdit(note)
-                                        } else {
-                                            Toast.makeText(context, "couldn't open note", Toast.LENGTH_SHORT).show()
+                                        try {
+                                            val note = withContext(Dispatchers.IO) {
+                                                Settings.notesDir(context)?.let { NotesDir(it).read(meta.title) }
+                                            }
+                                            if (note != null) {
+                                                editing = NoteEdit(note)
+                                            } else {
+                                                Toast.makeText(context, "couldn't open note", Toast.LENGTH_SHORT).show()
+                                            }
+                                        } finally {
+                                            loadingTitle = null
                                         }
                                     }
                                 },
@@ -280,8 +302,8 @@ fun NotesPage() {
         // The one writer. Persists a text snapshot and updates `saved`/`pristine`
         // in-lock, so the next serialized write renames from the file this one left
         // (not a stale original) — retitling never piles up files. A cleared title
-        // on an existing note keeps its filename; a fully-blank note is left
-        // unwritten (or an existing one deleted). No-op once the note is discarded.
+        // always falls back to "untitled", new note or existing — a fully-blank note
+        // is left unwritten (or an existing one deleted). No-op once discarded.
         suspend fun write(t: String, b: String) = saveLock.withLock {
             if (discarded) return@withLock
             val next = withContext(Dispatchers.IO) {
@@ -293,7 +315,7 @@ fun NotesPage() {
                         null
                     }
                     else -> {
-                        val finalTitle = if (trimmed.isBlank()) saved?.title ?: trimmed else trimmed
+                        val finalTitle = trimmed.ifBlank { "untitled" }
                         NotesDir(dir).save(saved, finalTitle, b)
                     }
                 }
@@ -349,6 +371,8 @@ fun NotesPage() {
             body = body,
             onBodyChange = { body = it },
             autofocusTitle = edit.note == null,
+            lastModified = saved?.lastModified,
+            dirty = dirty(),
             resetKey = edit,
             onDismiss = { close() },
             // The handoff flushes through the same writer, then opens whatever file
@@ -434,6 +458,8 @@ private fun openNoteExternally(context: Context, file: File): Boolean {
 @Composable
 private fun SearchField(value: String, onValueChange: (String) -> Unit) {
     val colors = UglyTheme.colors
+    val keyboard = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -451,7 +477,11 @@ private fun SearchField(value: String, onValueChange: (String) -> Unit) {
                 fontFamily = FontFamily.Monospace,
             ),
             cursorBrush = SolidColor(colors.accent),
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = {
+                keyboard?.hide()
+                focusManager.clearFocus()
+            }),
             modifier = Modifier.fillMaxWidth(),
         ) { inner ->
             if (value.isEmpty()) {
@@ -473,8 +503,9 @@ private fun SearchField(value: String, onValueChange: (String) -> Unit) {
  * Top-aligned so the dot rides the title line when the block is two lines tall.
  */
 @Composable
-private fun NoteRow(meta: NoteMeta, onOpen: () -> Unit) {
+private fun NoteRow(meta: NoteMeta, loading: Boolean, onOpen: () -> Unit) {
     val colors = UglyTheme.colors
+    val rowAlpha = if (loading) 0.5f else 1f
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -484,7 +515,10 @@ private fun NoteRow(meta: NoteMeta, onOpen: () -> Unit) {
         verticalAlignment = Alignment.Top,
     ) {
         Box(modifier = Modifier.size(DOT_GUTTER), contentAlignment = Alignment.Center) {
-            Box(Modifier.size(10.dp).clip(CircleShape).border(1.5.dp, colors.subtle, CircleShape))
+            Box(
+                Modifier.size(10.dp).clip(CircleShape)
+                    .border(1.5.dp, colors.subtle.copy(alpha = rowAlpha), CircleShape),
+            )
         }
         Column(
             modifier = Modifier.weight(1f),
@@ -492,7 +526,7 @@ private fun NoteRow(meta: NoteMeta, onOpen: () -> Unit) {
         ) {
             Text(
                 text = meta.title,
-                color = colors.foreground,
+                color = colors.foreground.copy(alpha = rowAlpha),
                 fontSize = 16.sp,
                 fontFamily = FontFamily.Monospace,
                 maxLines = 1,
@@ -501,7 +535,7 @@ private fun NoteRow(meta: NoteMeta, onOpen: () -> Unit) {
             if (meta.preview.isNotEmpty()) {
                 Text(
                     text = meta.preview,
-                    color = colors.mutedForeground,
+                    color = colors.mutedForeground.copy(alpha = rowAlpha),
                     fontSize = 13.sp,
                     fontFamily = FontFamily.Monospace,
                     maxLines = 1,
@@ -509,6 +543,28 @@ private fun NoteRow(meta: NoteMeta, onOpen: () -> Unit) {
                 )
             }
         }
+    }
+}
+
+/** A muted last-modified caption for an existing note, e.g. `jul 3, 14:05`. */
+private fun lastModifiedLabel(lastModified: Long): String =
+    lastModifiedFormat.get()!!.format(lastModified).lowercase(Locale.getDefault())
+
+// SimpleDateFormat isn't thread-safe; ThreadLocal avoids allocating one per call
+// (this runs on every keystroke's recomposition) while staying safe if the editor
+// is ever touched off the main thread.
+private val lastModifiedFormat = ThreadLocal.withInitial { SimpleDateFormat("MMM d, HH:mm", Locale.getDefault()) }
+
+/** A minimal hairline-pill drag handle, in place of the default M3 one. */
+@Composable
+private fun NoteDragHandle() {
+    Box(Modifier.fillMaxWidth().padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
+        Box(
+            Modifier
+                .size(width = 32.dp, height = 4.dp)
+                .clip(RoundedCornerShape(2.dp))
+                .background(UglyTheme.colors.subtle),
+        )
     }
 }
 
@@ -530,6 +586,8 @@ private fun NoteEditor(
     body: String,
     onBodyChange: (String) -> Unit,
     autofocusTitle: Boolean,
+    lastModified: Long?,
+    dirty: Boolean,
     resetKey: Any?,
     onDismiss: () -> Unit,
     onOpenExternal: (() -> Unit)?,
@@ -537,6 +595,7 @@ private fun NoteEditor(
 ) {
     val colors = UglyTheme.colors
     val focusRequester = remember { FocusRequester() }
+    val bodyFocusRequester = remember { FocusRequester() }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     // A brand-new blank note lands with the cursor in the title; an existing one
@@ -552,7 +611,7 @@ private fun NoteEditor(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         containerColor = colors.background,
-        dragHandle = null,
+        dragHandle = { NoteDragHandle() },
     ) {
         Column(
             modifier = Modifier
@@ -564,6 +623,15 @@ private fun NoteEditor(
                 .padding(top = 24.dp, bottom = 16.dp)
                 .imePadding(),
         ) {
+            Text(
+                text = if (lastModified == null) "NEW NOTE" else lastModifiedLabel(lastModified),
+                color = colors.mutedForeground,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 2.sp,
+                fontFamily = FontFamily.Monospace,
+                modifier = Modifier.padding(bottom = 8.dp),
+            )
             BasicTextField(
                 value = title,
                 onValueChange = onTitleChange,
@@ -576,6 +644,7 @@ private fun NoteEditor(
                 ),
                 cursorBrush = SolidColor(colors.accent),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                keyboardActions = KeyboardActions(onNext = { bodyFocusRequester.requestFocus() }),
                 modifier = Modifier
                     .fillMaxWidth()
                     .focusRequester(focusRequester),
@@ -608,7 +677,9 @@ private fun NoteEditor(
                         fontFamily = FontFamily.Monospace,
                     ),
                     cursorBrush = SolidColor(colors.accent),
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .focusRequester(bodyFocusRequester),
                 ) { inner ->
                     if (body.isEmpty()) {
                         Text(
@@ -628,6 +699,7 @@ private fun NoteEditor(
                 onDone = onDismiss,
                 onOpen = onOpenExternal,
                 onDelete = onDelete,
+                dirty = dirty,
                 resetKey = resetKey,
             )
         }
@@ -638,30 +710,42 @@ private fun NoteEditor(
  * The editor's pinned action row: the quiet tap-to-arm [DeleteAction] on the left
  * (shown once the note has been written), a muted "open in…" handoff in the middle,
  * and a bold `done` on the right. Edits have already autosaved, so `done` only
- * dismisses the editor. [resetKey] disarms delete when the note changes.
+ * dismisses the editor. [resetKey] disarms delete when the note changes. [dirty]
+ * drives a quiet `editing…`/`saved` caption above the row — autosave otherwise
+ * happens silently, and this is the only feedback that it worked.
  */
 @Composable
 private fun NoteActions(
     onDone: () -> Unit,
     onOpen: (() -> Unit)?,
     onDelete: (() -> Unit)?,
+    dirty: Boolean,
     resetKey: Any?,
 ) {
-    // Children align on their text baselines, not their centers, so the smaller
-    // "delete"/"open" and the bigger "done" sit on one line despite the size gap.
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-    ) {
-        if (onDelete != null) {
-            DeleteAction(onDelete = onDelete, resetKey = resetKey, modifier = Modifier.alignByBaseline())
-        } else {
-            Spacer(Modifier.width(1.dp))
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = if (dirty) "editing…" else "saved",
+            color = UglyTheme.colors.mutedForeground,
+            fontSize = 13.sp,
+            fontFamily = FontFamily.Monospace,
+            modifier = Modifier.padding(bottom = 8.dp),
+        )
+        // Children align on their text baselines, not their centers, so the smaller
+        // "delete"/"open" and the bigger "done" sit on one line despite the size gap.
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            if (onDelete != null) {
+                DeleteAction(onDelete = onDelete, resetKey = resetKey, modifier = Modifier.alignByBaseline())
+            } else {
+                Spacer(Modifier.width(1.dp))
+            }
+            if (onOpen != null) {
+                OpenAction(onClick = onOpen, modifier = Modifier.alignByBaseline())
+            }
+            SaveAction(enabled = true, onClick = onDone, label = "done", modifier = Modifier.alignByBaseline())
         }
-        if (onOpen != null) {
-            OpenAction(onClick = onOpen, modifier = Modifier.alignByBaseline())
-        }
-        SaveAction(enabled = true, onClick = onDone, label = "done", modifier = Modifier.alignByBaseline())
     }
 }
 
