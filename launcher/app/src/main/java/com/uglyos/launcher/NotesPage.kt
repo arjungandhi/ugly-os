@@ -1,8 +1,6 @@
 package com.uglyos.launcher
 
-import android.content.ActivityNotFoundException
 import android.content.Context
-import android.content.Intent
 import android.os.FileObserver
 import android.widget.Toast
 import androidx.compose.foundation.background
@@ -10,12 +8,14 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -58,7 +58,6 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.content.FileProvider
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -72,9 +71,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import java.io.File
-import java.text.SimpleDateFormat
-import java.util.Locale
 
 /** What the notes page has to show once it's tried to read the dir. */
 private sealed interface NotesState {
@@ -371,33 +367,9 @@ fun NotesPage() {
             body = body,
             onBodyChange = { body = it },
             autofocusTitle = edit.note == null,
-            lastModified = saved?.lastModified,
             dirty = dirty(),
             resetKey = edit,
             onDismiss = { close() },
-            // The handoff flushes through the same writer, then opens whatever file
-            // `saved` now names — read after the serialized write, so an autosave
-            // rename can't leave it on a stale path.
-            onOpenExternal = if (saved != null) {
-                {
-                    val t = title
-                    val b = body
-                    scope.launch {
-                        write(t, b)
-                        val note = saved
-                        val dir = Settings.notesDir(context)
-                        val opened = if (note != null && dir != null) {
-                            openNoteExternally(context, File(dir, note.title + ".md"))
-                        } else {
-                            false
-                        }
-                        reload()
-                        if (opened) editing = null
-                    }
-                }
-            } else {
-                null
-            },
             // Delete goes through the same lock and marks the session discarded, so a
             // write already in flight can't bring the note back; it removes whatever
             // `saved` names at that point, not a capture that a rename may have staled.
@@ -422,31 +394,6 @@ fun NotesPage() {
                 null
             },
         )
-    }
-}
-
-/**
- * Hand [file] to a real editor via an ACTION_EDIT chooser, granting temporary
- * read/write on a FileProvider content uri so the picked app edits the actual note
- * (its changes sync back and reload here). Returns whether an editor took it; shows
- * a quiet toast and returns false when nothing can handle it.
- */
-private fun openNoteExternally(context: Context, file: File): Boolean {
-    val uri = try {
-        FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
-    } catch (e: IllegalArgumentException) {
-        return false
-    }
-    val edit = Intent(Intent.ACTION_EDIT).apply {
-        setDataAndType(uri, "text/plain")
-        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
-    }
-    return try {
-        context.startActivity(Intent.createChooser(edit, "open in"))
-        true
-    } catch (e: ActivityNotFoundException) {
-        Toast.makeText(context, "no editor app found", Toast.LENGTH_SHORT).show()
-        false
     }
 }
 
@@ -546,15 +493,6 @@ private fun NoteRow(meta: NoteMeta, loading: Boolean, onOpen: () -> Unit) {
     }
 }
 
-/** A muted last-modified caption for an existing note, e.g. `jul 3, 14:05`. */
-private fun lastModifiedLabel(lastModified: Long): String =
-    lastModifiedFormat.get()!!.format(lastModified).lowercase(Locale.getDefault())
-
-// SimpleDateFormat isn't thread-safe; ThreadLocal avoids allocating one per call
-// (this runs on every keystroke's recomposition) while staying safe if the editor
-// is ever touched off the main thread.
-private val lastModifiedFormat = ThreadLocal.withInitial { SimpleDateFormat("MMM d, HH:mm", Locale.getDefault()) }
-
 /** A minimal hairline-pill drag handle, in place of the default M3 one. */
 @Composable
 private fun NoteDragHandle() {
@@ -575,8 +513,8 @@ private fun NoteDragHandle() {
  * single-line title field (the filename) sits over a large scrollable body field.
  * Edits autosave (the caller persists as typing pauses and again on close), so the
  * pinned action row carries no save: a tap-to-arm [DeleteAction] on the left (shown
- * once the note exists), a muted "open in…" handoff, and a bold `done` on the right
- * that just dismisses. The editor is a pure view — the caller owns the text state.
+ * once the note exists) and a bold `done` on the right that just dismisses. The
+ * editor is a pure view — the caller owns the text state.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -586,11 +524,9 @@ private fun NoteEditor(
     body: String,
     onBodyChange: (String) -> Unit,
     autofocusTitle: Boolean,
-    lastModified: Long?,
     dirty: Boolean,
     resetKey: Any?,
     onDismiss: () -> Unit,
-    onOpenExternal: (() -> Unit)?,
     onDelete: (() -> Unit)?,
 ) {
     val colors = UglyTheme.colors
@@ -623,15 +559,6 @@ private fun NoteEditor(
                 .padding(top = 24.dp, bottom = 16.dp)
                 .imePadding(),
         ) {
-            Text(
-                text = if (lastModified == null) "NEW NOTE" else lastModifiedLabel(lastModified),
-                color = colors.mutedForeground,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 2.sp,
-                fontFamily = FontFamily.Monospace,
-                modifier = Modifier.padding(bottom = 8.dp),
-            )
             BasicTextField(
                 value = title,
                 onValueChange = onTitleChange,
@@ -661,43 +588,49 @@ private fun NoteEditor(
                 inner()
             }
             Hairline(Modifier.padding(vertical = 16.dp))
-            Box(
+            // The field fills at least the visible height, so a tap anywhere in the
+            // empty area below the text lands in it — not only on the first line.
+            // BoxWithConstraints measures the bounded height; the scroll sits on the
+            // inner box so long notes still scroll past that minimum.
+            BoxWithConstraints(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f)
-                    .verticalScroll(rememberScrollState()),
+                    .weight(1f),
             ) {
-                BasicTextField(
-                    value = body,
-                    onValueChange = onBodyChange,
-                    textStyle = TextStyle(
-                        color = colors.foreground,
-                        fontSize = 15.sp,
-                        lineHeight = 22.sp,
-                        fontFamily = FontFamily.Monospace,
-                    ),
-                    cursorBrush = SolidColor(colors.accent),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .focusRequester(bodyFocusRequester),
-                ) { inner ->
-                    if (body.isEmpty()) {
-                        Text(
-                            text = "note",
-                            color = colors.mutedForeground,
+                val minBodyHeight = maxHeight
+                Box(Modifier.verticalScroll(rememberScrollState())) {
+                    BasicTextField(
+                        value = body,
+                        onValueChange = onBodyChange,
+                        textStyle = TextStyle(
+                            color = colors.foreground,
                             fontSize = 15.sp,
                             lineHeight = 22.sp,
                             fontFamily = FontFamily.Monospace,
-                        )
+                        ),
+                        cursorBrush = SolidColor(colors.accent),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = minBodyHeight)
+                            .focusRequester(bodyFocusRequester),
+                    ) { inner ->
+                        if (body.isEmpty()) {
+                            Text(
+                                text = "note",
+                                color = colors.mutedForeground,
+                                fontSize = 15.sp,
+                                lineHeight = 22.sp,
+                                fontFamily = FontFamily.Monospace,
+                            )
+                        }
+                        inner()
                     }
-                    inner()
                 }
             }
             Hairline(Modifier.padding(top = 16.dp))
             Spacer(Modifier.height(8.dp))
             NoteActions(
                 onDone = onDismiss,
-                onOpen = onOpenExternal,
                 onDelete = onDelete,
                 dirty = dirty,
                 resetKey = resetKey,
@@ -707,64 +640,39 @@ private fun NoteEditor(
 }
 
 /**
- * The editor's pinned action row: the quiet tap-to-arm [DeleteAction] on the left
- * (shown once the note has been written), a muted "open in…" handoff in the middle,
- * and a bold `done` on the right. Edits have already autosaved, so `done` only
- * dismisses the editor. [resetKey] disarms delete when the note changes. [dirty]
- * drives a quiet `editing…`/`saved` caption above the row — autosave otherwise
- * happens silently, and this is the only feedback that it worked.
+ * The editor's pinned action row, all on one line: the quiet tap-to-arm
+ * [DeleteAction] on the left (shown once the note has been written), a muted
+ * `editing…`/`saved` autosave status in the middle (the only feedback that the
+ * silent autosave worked), and a bold `done` on the right. Edits have already
+ * autosaved, so `done` only dismisses. [resetKey] disarms delete when the note
+ * changes.
  */
 @Composable
 private fun NoteActions(
     onDone: () -> Unit,
-    onOpen: (() -> Unit)?,
     onDelete: (() -> Unit)?,
     dirty: Boolean,
     resetKey: Any?,
 ) {
-    Column(modifier = Modifier.fillMaxWidth()) {
+    // Children align on their text baselines, not their centers, so the smaller
+    // "delete"/status and the bigger "done" sit on one line despite the size gap.
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        if (onDelete != null) {
+            DeleteAction(onDelete = onDelete, resetKey = resetKey, modifier = Modifier.alignByBaseline())
+        } else {
+            Spacer(Modifier.width(1.dp))
+        }
         Text(
             text = if (dirty) "editing…" else "saved",
             color = UglyTheme.colors.mutedForeground,
             fontSize = 13.sp,
             fontFamily = FontFamily.Monospace,
-            modifier = Modifier.padding(bottom = 8.dp),
+            modifier = Modifier.alignByBaseline(),
         )
-        // Children align on their text baselines, not their centers, so the smaller
-        // "delete"/"open" and the bigger "done" sit on one line despite the size gap.
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            if (onDelete != null) {
-                DeleteAction(onDelete = onDelete, resetKey = resetKey, modifier = Modifier.alignByBaseline())
-            } else {
-                Spacer(Modifier.width(1.dp))
-            }
-            if (onOpen != null) {
-                OpenAction(onClick = onOpen, modifier = Modifier.alignByBaseline())
-            }
-            SaveAction(enabled = true, onClick = onDone, label = "done", modifier = Modifier.alignByBaseline())
-        }
+        SaveAction(enabled = true, onClick = onDone, label = "done", modifier = Modifier.alignByBaseline())
     }
-}
-
-/**
- * The handoff to a real editor: a quiet, muted "open in…" — deliberately understated
- * so save stays the one loud thing. Saves the note first (done by the caller), then
- * fires an ACTION_EDIT on its file so a purpose-built markdown editor can take over.
- */
-@Composable
-private fun OpenAction(onClick: () -> Unit, modifier: Modifier = Modifier) {
-    Text(
-        text = "open in…",
-        color = UglyTheme.colors.mutedForeground,
-        fontSize = 13.sp,
-        fontFamily = FontFamily.Monospace,
-        modifier = modifier
-            .clip(RoundedCornerShape(12.dp))
-            .clickable(onClick = onClick)
-            .padding(vertical = 12.dp, horizontal = 8.dp),
-    )
 }
 
