@@ -9,9 +9,16 @@ Run from the repo root:
 ```
 just build      # build debug APK
 just install    # build + install to connected device
+just emulate    # boot a Pixel 9a emulator + install/launch the launcher on it
 just dev        # watch sources, reinstall + relaunch on change
 just test       # run unit tests
 ```
+
+`just emulate` creates (once) and boots a `ugly_pixel_9a` AVD, then installs and
+launches the launcher as the default home on it. It needs the Android SDK's
+command-line tools; if `avdmanager` is missing, install them first — on Arch:
+`yay -S android-sdk-cmdline-tools-latest`. The system image is auto-installed on
+first run if absent.
 
 `just dev` requires `watchexec`. It is not true hot reload — Compose Live Edit
 is Android Studio only — but it reinstalls and relaunches on every `.kt`/`.xml`
@@ -79,9 +86,10 @@ APK output: `launcher/app/build/outputs/apk/debug/app-debug.apk`
 - **Notes** — a page over `notes_dir`, one `<title>.md` file per note. The list is
   newest-modified first; a search field narrows it by title or body. Tapping a note
   opens a full-screen editor (single-line title over a scrollable markdown body);
-  "new note" opens a blank one, and the editor's armed delete removes it. Saves and
-  deletes run off the main thread through the notes library; live-reload via
-  `FileObserver` so Syncthing edits show up.
+  "new note" opens a blank one, and the editor's armed delete removes it. Edits
+  autosave (as typing pauses, on close, and when the app backgrounds) — no save
+  button, just `done` to dismiss. Writes and deletes run off the main thread through
+  the notes library; live-reload via `FileObserver` so Syncthing edits show up.
 - **Settings** — grouped by signpost (data, quick launch, permissions, next
   event). Permissions are requested inline, routing to system settings once
   permanently denied.

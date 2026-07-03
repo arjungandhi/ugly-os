@@ -21,6 +21,10 @@ dev:
         --watch app/src --watch common/src \
         -- './gradlew installDebug && adb shell am start -n com.uglyos.launcher/.MainActivity'
 
+# Create/boot a Pixel 9a emulator and install + launch the launcher on it.
+emulate:
+    ./scripts/emulate.sh
+
 # Run the launcher unit tests.
 test:
     cd {{launcher}} && ./gradlew test
