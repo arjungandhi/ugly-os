@@ -1,13 +1,8 @@
 # design
 
 the design language for ugly os. read this before touching any ui, in any app.
-
-the launcher is the first app, so its screens are the worked examples throughout
-— but this doc governs the whole os. anything new should look like it belongs on
-the same phone.
-
-it is the direction, not just a description of what exists today. when a
-screen disagrees with this doc, the screen is wrong.
+it is direction, not description — when a screen disagrees with this doc, the
+screen is wrong.
 
 ## the one-liner
 
@@ -20,23 +15,6 @@ screen disagrees with this doc, the screen is wrong.
 - **lowercase** gives us the attitude: terse, honest, unbranded. a tool a person
   made for themselves, not a product. "scuffed" lives in the *words and tone*,
   never in broken alignment or sloppy pixels.
-
-## the anchor
-
-the **dot-matrix clock + calendar card** (`DotMatrixClock.kt`,
-`DateTimeWidget.kt`) is the north star. it is already right. every other screen
-should feel like it belongs on the same phone as that clock.
-
-when unsure how to style something, open the home screen and ask: *would this sit
-comfortably under that clock?* if not, change it.
-
-what makes it right, and what to carry everywhere:
-
-- a single dominant element, rendered with care (the dots).
-- structure you can see: a visible grid, a hairline border, a bullet dot.
-- monospace tracked out into a quiet UPPERCASE label (`CALENDAR · month`).
-- generous negative space. nothing is crowded.
-- exactly one accent touch (the bullet dot), and nothing else colored.
 
 ## principles
 
@@ -183,37 +161,10 @@ live low, and the things you read live high.**
 
 reading flows top-to-bottom; reach flows bottom-up. a good screen honors both.
 
-## applying it — per screen
-
-- **home** — clock + calendar own the top; quick-launch sits quietly at the
-  bottom in muted grey. shortcut tiles are structure, not color — a label in
-  `foreground`, the tile in `surface`, no accent unless pressed.
-- **search** — the field is the one loud thing: `surface`, 20dp radius,
-  monospace 18sp, `accent` cursor. results are a plain lowercase list under
-  UPPERCASE source labels (`APPS`, `SETTINGS`). only the top hit earns the
-  accent — a filled 12dp card + accent title — because it's what enter opens.
-- **todo / work** — this is where aurora earns its keep. lowercase task text in
-  `foreground`; priority `(A)/(B)` as a colored badge (`error`/`warning`);
-  completed tasks drop to `mutedForeground` with `success` marking done.
-  contexts/tags are quiet — muted, never a rainbow. empty state is a single
-  dimmed lowercase line: `no tasks`. title reads up top; `add task` is pinned
-  low in thumb reach (see **reach**); the editor rises as a bottom sheet. don't
-  make people type syntax — priority and due are tap-set (aurora pips, relative
-  chips + a themed date picker), and the raw `(A)`/`due:` line is assembled for
-  them. the scoping `@context` of a page is hidden on its rows and re-attached
-  on save, not repeated.
-- **settings** — the most utilitarian screen; keep it flattest. a `settings`
-  title, grouped rows in a `surface` card, lowercase labels, values in
-  `mutedForeground`, a `subtle` chevron. no accent unless something is actively
-  on or actionable.
-
-new screens should read like the sibling of these four.
-
 ## the taste test
 
 before you ship a screen, check:
 
-- [ ] could it sit under the dot-matrix clock without looking out of place?
 - [ ] is there exactly **one** loud element, and is everything else muted?
 - [ ] does every bit of color *mean* something you can name in a word?
 - [ ] is our chrome lowercase, and are UPPERCASE labels reserved for signposts?
@@ -222,4 +173,4 @@ before you ship a screen, check:
 - [ ] is the thing you tap most within thumb reach at the bottom, with reading
       up top? (reach flows bottom-up.)
 
-if all six pass, it's ugly in the right way.
+if they all pass, it's ugly in the right way.

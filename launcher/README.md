@@ -22,7 +22,9 @@ APK output: `launcher/app/build/outputs/apk/debug/app-debug.apk`
 ## Layout
 
 - `app/src/main/java/com/uglyos/launcher/MainActivity.kt` — home screen + app drawer
-- `app/src/main/java/com/uglyos/launcher/Shortcuts.kt` — home-screen quick-launch grid
+- `app/src/main/java/com/uglyos/launcher/Shortcuts.kt` — home-screen quick-launch dock (pinned apps)
+- `app/src/main/java/com/uglyos/launcher/QuickLaunchStore.kt` — dock pins + grid-size persistence
+- `app/src/main/java/com/uglyos/launcher/AppGlyph.kt` — monochrome app-icon glyph, shared by drawer + dock
 - `app/src/main/java/com/uglyos/launcher/Settings.kt` — settings page + persisted config
 - `app/src/main/java/com/uglyos/launcher/TodoPage.kt` — read-only todo.txt list pages
 - `app/src/main/java/com/uglyos/launcher/Search.kt` — global spotlight-style search (left of home)
@@ -33,53 +35,31 @@ APK output: `launcher/app/build/outputs/apk/debug/app-debug.apk`
 - `app/src/main/res/` — icon (adaptive, Nord-themed monkey), theme, strings
 - `common/` — shared library module (Nord theme, todo.txt library); see `common/README.md`
 
-## Notes
+## Basics
 
-- Package id: `com.uglyos.launcher`
-- minSdk 30, compileSdk 35
+- Package id: `com.uglyos.launcher`. minSdk 30, compileSdk 35.
 - Set as default: home button → pick "ugly launcher". Revert: Settings → Apps → Default apps → Home app.
-- Quick-launch shortcuts (phone, messages, email, internet, music, videos, camera,
-  wallet). Phone/email/internet/music/camera resolve to the user's default app via
-  implicit intents. Messages maps to Beeper (`com.beeper.android`), videos to
-  Grayjay (`com.futo.platformplayer`), and wallet to Google Wallet
-  (`com.google.android.apps.walletnfcrel`), all launched by package.
 - Pages, left to right: search, home, todo, work, settings.
-- Search fans the query out to independent providers (apps, settings, contacts,
-  web fallback) and ranks all hits on one scale, so the best match across every
-  source leads as the "top hit" — the one Enter opens. Ranking uses graded fuzzy
-  scoring (exact > prefix > word-start > substring > loose subsequence, with
-  boundary/acronym bonuses) plus a frecency boost: apps launched more often and
-  more recently rank higher. Launch history lives in the `frecency` prefs and
-  decays with a ~3-day half-life. Add a source by writing another provider in
-  `Search.kt` and dropping it into `runSearch`.
-- The two todo pages read `monkey_dir/atp/todo/todo.txt` (read-only for now). The
-  "todo" page shows every task *except* those tagged `@pattern`; the "work" page
-  shows only `@pattern` tasks. Both are backed by the same `TodoPage` component.
-- Todo reads use direct file I/O and a `FileObserver` on the todo dir, so edits
-  synced in by Syncthing show up live; pages also reload on resume.
-- Settings persist in SharedPreferences (`ugly_launcher`). The "monkey dir" is the
-  directory the launcher reads its data from, stored as a plain path. It starts
-  unset; the folder is picked once via the system picker (converted to a real path).
-  Reading arbitrary paths needs all-files access (`MANAGE_EXTERNAL_STORAGE`), granted
-  once from the settings page.
-- The home clock/calendar card is followed by a quiet next-event stack: up to
-  three of the next hour's events, each with a live "in 12 min" / "ends in 20m"
-  countdown recomputed on each minute tick. The first is the anchor (bullet dot,
-  lit text; the dot goes accent only within 5 minutes of a start), the rest align
-  under it in muted grey. It reads `CalendarContract.Instances` (recurring events
-  expanded), skips all-day events, uses a rolling 60-minute window (so tomorrow's
-  events never leak in), and hides entirely when the next hour is clear. Tapping
-  opens the calendar app.
-- Which calendars feed that stack is user-controlled: the settings `next event`
-  section shows a `calendars` row listing the selected calendars, with an `edit`
-  affordance that opens a popup of full-width on/off toggle rows grouped by
-  account (reference calendars like holidays or subscribed feeds can be silenced
-  there). The *excluded* set is stored (in `excluded_calendars` prefs), so a newly
-  added calendar defaults on rather than being silently missed.
-- Settings is grouped by signpost: a `data` section (monkey dir), a `permissions`
-  section (all-files, contacts, calendar), and a `next event` section (the
-  calendar picker, shown once calendar access is granted) — each permission row
-  shows a status dot, `success` when granted. Access is requested inline; once
-  permanently denied the row routes to the app's system settings page instead.
-  Calendar access (`READ_CALENDAR`) feeds the home-screen next-event stack. The
-  settings page scrolls.
+- The "monkey dir" (set in settings) is the directory the launcher reads data
+  from. Reading arbitrary paths needs all-files access (`MANAGE_EXTERNAL_STORAGE`).
+  Settings persist in the `ugly_launcher` prefs.
+
+## Features
+
+- **Home** — dot-matrix clock, calendar card, and a next-event stack: up to three
+  of the next hour's events with live countdowns, hidden when the hour is clear.
+  Which calendars feed it is user-controlled in settings.
+- **Quick launch** — a dock of user-pinned apps as monochrome glyphs on a fixed
+  grid (default 2 × 5). Tap launches, long-press removes, `+` pins. Seeded on
+  first run from default shortcuts, then it's whatever you pin. Persists in
+  `quick_launch` prefs.
+- **Search** — fans the query out to independent providers (apps, settings,
+  contacts, web fallback) and ranks all hits on one scale; the top hit is what
+  Enter opens. Graded fuzzy scoring plus a frecency boost (`frecency` prefs,
+  ~3-day half-life). Add a source with another provider in `Search.kt`.
+- **Todo / work** — read `monkey_dir/atp/todo/todo.txt` (read-only). "todo" shows
+  every task except `@pattern`; "work" shows only `@pattern`. Live-reload via
+  `FileObserver` so Syncthing edits show up.
+- **Settings** — grouped by signpost (data, quick launch, permissions, next
+  event). Permissions are requested inline, routing to system settings once
+  permanently denied.
