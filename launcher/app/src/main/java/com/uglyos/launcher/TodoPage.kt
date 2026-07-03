@@ -2,6 +2,8 @@ package com.uglyos.launcher
 
 import android.content.Context
 import android.os.FileObserver
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -286,9 +288,9 @@ fun TodoPage() {
             modifier = Modifier.padding(bottom = 20.dp),
         )
         when (val s = state) {
-            TodoState.NoDir -> Hint("set the monkey dir in settings")
-            TodoState.NoAccess -> Hint("grant all-files access in settings")
-            TodoState.NotFound -> Hint("no todo.txt found in monkey dir")
+            TodoState.NoDir -> Hint("set the monkey dir in settings", highlight = "settings")
+            TodoState.NoAccess -> Hint("grant all-files access in settings", highlight = "settings")
+            TodoState.NotFound -> Hint("no todo.txt found in monkey dir", highlight = "monkey dir")
             is TodoState.Loaded -> {
                 val visible = s.tasks.filter { mode.matches(it.task) }
                 if (visible.isEmpty()) {
@@ -576,12 +578,28 @@ private fun Hairline(modifier: Modifier = Modifier) {
     Box(modifier.fillMaxWidth().height(1.dp).background(UglyTheme.colors.subtle))
 }
 
-/** A dimmed message for empty/unconfigured states. */
+/**
+ * A dimmed message for empty/unconfigured states. A calm empty state ("no tasks")
+ * is plain grey; a setup state names where to act, and that [highlight] word is
+ * picked out in `accentMuted` so the two read as different in kind — one is fine,
+ * one wants a tap somewhere else.
+ */
 @Composable
-private fun Hint(text: String) {
+private fun Hint(text: String, highlight: String? = null) {
+    val colors = UglyTheme.colors
+    val annotated = buildAnnotatedString {
+        val at = highlight?.let { text.indexOf(it) } ?: -1
+        if (highlight == null || at < 0) {
+            append(text)
+        } else {
+            append(text.substring(0, at))
+            withStyle(SpanStyle(color = colors.accentMuted)) { append(highlight) }
+            append(text.substring(at + highlight.length))
+        }
+    }
     Text(
-        text = text,
-        color = UglyTheme.colors.mutedForeground,
+        text = annotated,
+        color = colors.mutedForeground,
         fontSize = 14.sp,
         fontFamily = FontFamily.Monospace,
     )
@@ -850,11 +868,11 @@ private fun TaskSheet(
                 onOpenPicker = { showPicker = true },
             )
 
-            SheetAction(label = "save", color = colors.accent, onClick = { onSave(assemble()) })
-            if (onDelete != null) {
-                Hairline()
-                SheetAction(label = "delete", color = colors.error, onClick = onDelete)
-            }
+            SheetActions(
+                onSave = { onSave(assemble()) },
+                onDelete = onDelete,
+                resetKey = edit,
+            )
         }
     }
 
@@ -943,15 +961,12 @@ private fun ModeSheet(
                 }
             }
 
-            SheetAction(
-                label = "save",
-                color = if (label.isBlank()) colors.subtle else colors.accent,
-                onClick = { if (label.isNotBlank()) onSave(assemble()) },
+            SheetActions(
+                saveEnabled = label.isNotBlank(),
+                onSave = { if (label.isNotBlank()) onSave(assemble()) },
+                onDelete = onDelete,
+                resetKey = edit,
             )
-            if (onDelete != null) {
-                Hairline()
-                SheetAction(label = "delete", color = colors.error, onClick = onDelete)
-            }
         }
     }
 }
@@ -1235,31 +1250,84 @@ private fun DayPickCell(
     }
 }
 
-/** A dot + label action row inside the task sheet. */
+/**
+ * A sheet's pinned action row, echoing the page footer's own left/right split: the
+ * quiet, tap-to-arm [DeleteAction] on the left (dropped when there's nothing to
+ * delete yet) and the primary save on the right. [resetKey] disarms delete whenever
+ * the edited item changes.
+ */
 @Composable
-private fun SheetAction(label: String, color: androidx.compose.ui.graphics.Color, onClick: () -> Unit) {
+private fun SheetActions(
+    saveEnabled: Boolean = true,
+    onSave: () -> Unit,
+    onDelete: (() -> Unit)?,
+    resetKey: Any?,
+) {
+    // Children align on their text baselines, not their centers, so the smaller
+    // "delete" and the bigger "save" sit on one line despite the size difference.
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .clickable(onClick = onClick)
-            .padding(vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        Box(
-            Modifier
-                .size(8.dp)
-                .clip(CircleShape)
-                .background(color)
-        )
-        Text(
-            text = label,
-            color = color,
-            fontSize = 16.sp,
-            fontWeight = FontWeight.Medium,
-            letterSpacing = 1.sp,
-            fontFamily = FontFamily.Monospace,
-        )
+        if (onDelete != null) {
+            DeleteAction(onDelete = onDelete, resetKey = resetKey, modifier = Modifier.alignByBaseline())
+        } else {
+            Spacer(Modifier.width(1.dp))
+        }
+        SaveAction(enabled = saveEnabled, onClick = onSave, modifier = Modifier.alignByBaseline())
     }
+}
+
+/**
+ * The primary commit action, right side of the row: a bold `accent` label — the
+ * sheet's one loud thing, kept to the text line so nothing pokes past the row's other
+ * elements. Goes `subtle` and inert when [enabled] is false.
+ */
+@Composable
+private fun SaveAction(enabled: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val colors = UglyTheme.colors
+    Text(
+        text = "save",
+        color = if (enabled) colors.accent else colors.subtle,
+        fontSize = 16.sp,
+        fontWeight = FontWeight.Bold,
+        letterSpacing = 1.sp,
+        fontFamily = FontFamily.Monospace,
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(vertical = 12.dp, horizontal = 4.dp),
+    )
+}
+
+/**
+ * The destructive action, deliberately quiet — small, dotless, `error`-colored — so
+ * it can't be mistaken for the loud save on the other end of the row. The first tap
+ * arms it (the label flips to a confirm prompt); only a second tap deletes, and it
+ * disarms after a beat if you don't. One deliberate confirm, no modal-on-modal.
+ * [resetKey] re-arms from scratch when the sheet moves to a different item.
+ */
+@Composable
+private fun DeleteAction(onDelete: () -> Unit, resetKey: Any?, modifier: Modifier = Modifier) {
+    val colors = UglyTheme.colors
+    var armed by remember(resetKey) { mutableStateOf(false) }
+    LaunchedEffect(armed) {
+        if (armed) {
+            kotlinx.coroutines.delay(2500)
+            armed = false
+        }
+    }
+    Text(
+        text = if (armed) "confirm" else "delete",
+        color = colors.error,
+        fontSize = 13.sp,
+        fontWeight = if (armed) FontWeight.Bold else FontWeight.Normal,
+        fontFamily = FontFamily.Monospace,
+        modifier = modifier
+            // Tween, not spring — the label swaps like a segment flipping, no bounce.
+            .animateContentSize(animationSpec = tween(durationMillis = 120))
+            .clip(RoundedCornerShape(12.dp))
+            .clickable { if (armed) onDelete() else armed = true }
+            .padding(vertical = 12.dp, horizontal = 4.dp),
+    )
 }
