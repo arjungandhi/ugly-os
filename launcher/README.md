@@ -9,91 +9,79 @@ Run from the repo root:
 ```
 just build      # build debug APK
 just install    # build + install to connected device
-just emulate    # boot a Pixel 9a emulator + install/launch the launcher on it
+just emulate    # boot a Pixel 9a emulator + install/launch on it
 just dev        # watch sources, reinstall + relaunch on change
 just test       # run unit tests
 ```
 
-`just emulate` creates (once) and boots a `ugly_pixel_9a` AVD, then installs and
-launches the launcher as the default home on it. It stays attached while the
-emulator runs; Ctrl-C shuts the emulator back down (an emulator that was already
-running when you invoked it is left up). It needs the Android SDK's command-line
-tools; if `avdmanager` is missing, install them first — on Arch: `yay -S
-android-sdk-cmdline-tools-latest`. The system image is auto-installed on first
-run if absent.
+- `just emulate` creates (once) and boots a `ugly_pixel_9a` AVD, installs the
+  launcher as default home, and stays attached until Ctrl-C (an emulator already
+  running when you invoked it is left up). Needs the Android SDK command-line
+  tools — on Arch: `yay -S android-sdk-cmdline-tools-latest`. The system image
+  auto-installs on first run.
+- `just dev` needs `watchexec`. Not true hot reload (Compose Live Edit is Android
+  Studio only), but it reinstalls + relaunches on every `.kt`/`.xml` change.
 
-`just dev` requires `watchexec`. It is not true hot reload — Compose Live Edit
-is Android Studio only — but it reinstalls and relaunches on every `.kt`/`.xml`
-change (incremental, usually a few seconds).
+APK output: `app/build/outputs/apk/debug/app-debug.apk`
 
-APK output: `launcher/app/build/outputs/apk/debug/app-debug.apk`
+## Basics
+
+- Package `com.uglyos.launcher`. minSdk 30, compileSdk 35.
+- Set as default: home button → pick "ugly launcher". Revert: Settings → Apps →
+  Default apps → Home app.
+- Pages, left to right: search, home, todo, notes, settings.
+- The todo and notes dirs (set in settings) hold `todo.txt`/`done.txt` and the
+  `.md` files. Reading arbitrary paths needs all-files access
+  (`MANAGE_EXTERNAL_STORAGE`). Settings persist in `ugly_launcher` prefs.
 
 ## Layout
 
 - `app/src/main/java/com/uglyos/launcher/MainActivity.kt` — home screen + app drawer
-- `app/src/main/java/com/uglyos/launcher/Shortcuts.kt` — home-screen quick-launch dock (pinned apps)
-- `app/src/main/java/com/uglyos/launcher/QuickLaunchStore.kt` — dock pins + grid-size persistence
-- `app/src/main/java/com/uglyos/launcher/AppGlyph.kt` — monochrome app-icon glyph, shared by drawer + dock
-- `app/src/main/java/com/uglyos/launcher/Settings.kt` — settings page + persisted config
-- `app/src/main/java/com/uglyos/launcher/TodoPage.kt` — interactive todo.txt page with mode switcher
-- `app/src/main/java/com/uglyos/launcher/TodoModeStore.kt` — user-defined todo modes (filters) + selected-mode persistence
-- `app/src/main/java/com/uglyos/launcher/NotesPage.kt` — markdown notes page: list/search + full-screen editor
-- `app/src/main/java/com/uglyos/launcher/Search.kt` — global spotlight-style search (left of home)
-- `app/src/main/java/com/uglyos/launcher/DateTimeWidget.kt` — home clock, calendar card, now-playing bar, next-event line
-- `app/src/main/java/com/uglyos/launcher/NextEvent.kt` — reads the next calendar event via the calendar provider
-- `app/src/main/java/com/uglyos/launcher/MediaControl.kt` — reads/controls the active media session (notification-listener service + helpers)
-- `app/src/main/java/com/uglyos/launcher/Frecency.kt` — per-app launch history feeding search ranking
-- `app/src/main/AndroidManifest.xml` — registers as HOME, queries launchable apps
-- `app/src/main/res/` — icon (adaptive, Nord-themed monkey), theme, strings
-- `common/` — shared library module (Nord theme, todo.txt library, notes library); see `common/README.md`
-
-## Basics
-
-- Package id: `com.uglyos.launcher`. minSdk 30, compileSdk 35.
-- Set as default: home button → pick "ugly launcher". Revert: Settings → Apps → Default apps → Home app.
-- Pages, left to right: search, home, todo, notes, settings.
-- The "todo dir" (set in settings) is the directory holding `todo.txt` and
-  `done.txt`; the "notes dir" (also set in settings) holds the `.md` note files.
-  Reading arbitrary paths needs all-files access (`MANAGE_EXTERNAL_STORAGE`).
-  Settings persist in the `ugly_launcher` prefs.
+- `Shortcuts.kt` — home-screen quick-launch dock (pinned apps)
+- `QuickLaunchStore.kt` — dock pins + grid-size persistence
+- `AppGlyph.kt` — monochrome app-icon glyph, shared by drawer + dock
+- `Settings.kt` — settings page + persisted config
+- `TodoPage.kt` — interactive todo.txt page with mode switcher
+- `TodoModeStore.kt` — user-defined todo modes (filters) + selected-mode persistence
+- `NotesPage.kt` — markdown notes page: list/search + full-screen editor
+- `Search.kt` — global spotlight-style search (left of home)
+- `DateTimeWidget.kt` — home clock, calendar card, now-playing bar, next-event line
+- `NextEvent.kt` — reads the next calendar event via the calendar provider
+- `MediaControl.kt` — reads/controls the active media session
+- `Frecency.kt` — per-app launch history feeding search ranking
+- `AndroidManifest.xml` — registers as HOME, queries launchable apps
+- `res/` — icon (adaptive, Nord-themed monkey), theme, strings
+- `common/` — shared module (Nord theme, todo.txt + notes libraries); see `common/README.md`
 
 ## Features
 
 - **Home** — dot-matrix clock, calendar card, and a next-event stack: up to three
   of the next hour's events with live countdowns, hidden when the hour is clear.
-  Which calendars feed it is user-controlled in settings.
-- **Now playing** — a control that surfaces between the calendar card and the
-  next-event stack only when a media session is live: title, artist, and prev /
-  play-pause / next. Hand-drawn glyphs, hidden when nothing is playing. Needs
-  notification-listener access (Android's only route to other apps' media
-  sessions), granted from settings → permissions → media controls.
-- **Quick launch** — a dock of user-pinned apps as monochrome glyphs on a fixed
-  grid (default 2 × 5). Tap launches, long-press removes, `+` pins. Seeded on
-  first run from default shortcuts, then it's whatever you pin. Persists in
-  `quick_launch` prefs.
+  Source calendars are chosen in settings.
+- **Now playing** — a control between the calendar card and next-event stack,
+  shown only when a media session is live: title, artist, prev / play-pause /
+  next. Needs notification-listener access (settings → permissions → media
+  controls).
+- **Quick launch** — a dock of pinned apps as monochrome glyphs on a fixed grid
+  (default 2 × 5). Tap launches, long-press removes, `+` pins. Seeded on first
+  run, then whatever you pin. Persists in `quick_launch` prefs.
 - **Search** — fans the query out to independent providers (apps, settings,
-  contacts, web fallback) and ranks all hits on one scale; the top hit is what
-  Enter opens. Graded fuzzy scoring plus a frecency boost (`frecency` prefs,
-  ~3-day half-life). Add a source with another provider in `Search.kt`.
-- **Todo** — one page over `todo_dir/todo.txt`. The footer names the
-  active mode (bottom-right); tapping it opens a menu where you tap a mode to
-  switch to it, long-press a mode to edit or delete it, and "add mode" makes a
-  new one. A fresh install is seeded with an "all" mode that shows everything,
-  editable like any other; you define modes that filter on a `+project`, an
-  `@context`, or both — or the inverse (match vs exclude). A scoped mode hides its
-  own tag on each row and auto-appends it to tasks
-  added there, so a task lands in the mode you made it in. The chosen mode persists
-  across restarts. Add/edit/complete tasks (done archived to done.txt); live-reload
-  via `FileObserver` so Syncthing edits show up. Modes persist in `todo_modes` prefs.
-- **Notes** — a page over `notes_dir`, one `<title>.md` file per note. The list is
-  newest-modified first; a search field narrows it by title or body. To stay light
-  on a large dir, the list reads only each note's preview line (not its body) and
-  search streams the files one at a time; a note's body loads only when opened.
-  Tapping a note opens a full-screen editor (single-line title over a scrollable markdown body);
-  "new note" opens a blank one, and the editor's armed delete removes it. Edits
-  autosave (as typing pauses, on close, and when the app backgrounds) — no save
-  button, just `done` to dismiss. Writes and deletes run off the main thread through
-  the notes library; live-reload via `FileObserver` so Syncthing edits show up.
+  contacts, web fallback) and ranks all hits on one scale; the top hit opens on
+  Enter. Graded fuzzy scoring plus a frecency boost (`frecency` prefs, ~3-day
+  half-life). Add a source via another provider in `Search.kt`.
+- **Todo** — one page over `todo_dir/todo.txt`. The footer names the active mode;
+  tap to switch, long-press to edit or delete, "add mode" to create one. Modes
+  filter on a `+project`, an `@context`, or both — or the inverse. A scoped mode
+  hides its own tag per row and auto-appends it to tasks added there. Add / edit /
+  complete tasks (done archived to `done.txt`); live-reload via `FileObserver`.
+  Modes persist in `todo_modes` prefs.
+- **Notes** — a page over `notes_dir`, one `<title>.md` per note, newest-modified
+  first; a search field narrows by title or body. Stays light on large dirs:
+  the list reads only each note's preview line, search streams files one at a
+  time, and a body loads only when opened. Tap opens a full-screen editor;
+  "new note" opens a blank one; the editor's armed delete removes it. Edits
+  autosave (on pause, close, and background) — no save button, just `done` to
+  dismiss. Writes/deletes run off the main thread; live-reload via `FileObserver`.
 - **Settings** — grouped by signpost (data, quick launch, permissions, next
-  event). Permissions are requested inline, routing to system settings once
+  event). Permissions requested inline, routing to system settings once
   permanently denied.
