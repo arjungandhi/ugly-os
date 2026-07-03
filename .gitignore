@@ -32,3 +32,8 @@ google-services.json
 
 # Android Profiling
 *.hprof
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key
