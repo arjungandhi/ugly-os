@@ -2,8 +2,6 @@ package com.uglyos.launcher
 
 import android.content.Context
 import android.os.FileObserver
-import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -170,17 +168,6 @@ private fun completeTask(context: Context, index: Int) {
     TodoFile(done).edit { it.add(completed) }
     list.removeAt(index)
     TodoFile(todo).save(list)
-}
-
-/** Watch [dir] and call [onChange] whenever a file in it is written or renamed. */
-private fun watchDir(dir: File, onChange: () -> Unit): FileObserver {
-    // Syncthing writes a temp file then renames it in, so watch for the rename
-    // (MOVED_TO) as well as direct writes (CLOSE_WRITE) and deletes.
-    val mask = FileObserver.CLOSE_WRITE or FileObserver.MOVED_TO or
-        FileObserver.MOVED_FROM or FileObserver.DELETE or FileObserver.CREATE
-    return object : FileObserver(dir, mask) {
-        override fun onEvent(event: Int, path: String?) = onChange()
-    }
 }
 
 /** A pending add (index null) or edit of an existing line, driving the editor sheet. */
@@ -567,75 +554,6 @@ private fun ModeMenuRow(label: String, active: Boolean, onSelect: () -> Unit, on
             color = if (active) colors.foreground else colors.mutedForeground,
             fontSize = 16.sp,
             fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
-            fontFamily = FontFamily.Monospace,
-        )
-    }
-}
-
-/** The app's structural divider: a 1dp `subtle` hairline. */
-@Composable
-private fun Hairline(modifier: Modifier = Modifier) {
-    Box(modifier.fillMaxWidth().height(1.dp).background(UglyTheme.colors.subtle))
-}
-
-/**
- * A dimmed message for empty/unconfigured states. A calm empty state ("no tasks")
- * is plain grey; a setup state names where to act, and that [highlight] word is
- * picked out in `accentMuted` so the two read as different in kind — one is fine,
- * one wants a tap somewhere else.
- */
-@Composable
-private fun Hint(text: String, highlight: String? = null) {
-    val colors = UglyTheme.colors
-    val annotated = buildAnnotatedString {
-        val at = highlight?.let { text.indexOf(it) } ?: -1
-        if (highlight == null || at < 0) {
-            append(text)
-        } else {
-            append(text.substring(0, at))
-            withStyle(SpanStyle(color = colors.accentMuted)) { append(highlight) }
-            append(text.substring(at + highlight.length))
-        }
-    }
-    Text(
-        text = annotated,
-        color = colors.mutedForeground,
-        fontSize = 14.sp,
-        fontFamily = FontFamily.Monospace,
-    )
-}
-
-/** The gutter the completion dots (and the add "+") sit in, so rows align. */
-private val DOT_GUTTER = 20.dp
-
-/**
- * A tappable "+ [label]" affordance. Its "+" sits in the same [DOT_GUTTER] as the
- * task dots, so the column of markers lines up.
- */
-@Composable
-private fun AddRow(label: String, onClick: () -> Unit) {
-    val colors = UglyTheme.colors
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(modifier = Modifier.size(DOT_GUTTER), contentAlignment = Alignment.Center) {
-            Text(
-                text = "+",
-                color = colors.accent,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Bold,
-                fontFamily = FontFamily.Monospace,
-            )
-        }
-        Text(
-            text = label,
-            color = colors.mutedForeground,
-            fontSize = 15.sp,
             fontFamily = FontFamily.Monospace,
         )
     }
@@ -1278,55 +1196,3 @@ private fun SheetActions(
     }
 }
 
-/**
- * The primary commit action, right side of the row: a bold `accent` label — the
- * sheet's one loud thing, kept to the text line so nothing pokes past the row's other
- * elements. Goes `subtle` and inert when [enabled] is false.
- */
-@Composable
-private fun SaveAction(enabled: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    val colors = UglyTheme.colors
-    Text(
-        text = "save",
-        color = if (enabled) colors.accent else colors.subtle,
-        fontSize = 16.sp,
-        fontWeight = FontWeight.Bold,
-        fontFamily = FontFamily.Monospace,
-        modifier = modifier
-            .clip(RoundedCornerShape(12.dp))
-            .clickable(enabled = enabled, onClick = onClick)
-            .padding(vertical = 12.dp, horizontal = 8.dp),
-    )
-}
-
-/**
- * The destructive action, deliberately quiet — small, dotless, `error`-colored — so
- * it can't be mistaken for the loud save on the other end of the row. The first tap
- * arms it (the label flips to a confirm prompt); only a second tap deletes, and it
- * disarms after a beat if you don't. One deliberate confirm, no modal-on-modal.
- * [resetKey] re-arms from scratch when the sheet moves to a different item.
- */
-@Composable
-private fun DeleteAction(onDelete: () -> Unit, resetKey: Any?, modifier: Modifier = Modifier) {
-    val colors = UglyTheme.colors
-    var armed by remember(resetKey) { mutableStateOf(false) }
-    LaunchedEffect(armed) {
-        if (armed) {
-            kotlinx.coroutines.delay(2500)
-            armed = false
-        }
-    }
-    Text(
-        text = if (armed) "confirm" else "delete",
-        color = colors.error,
-        fontSize = 13.sp,
-        fontWeight = if (armed) FontWeight.Bold else FontWeight.Normal,
-        fontFamily = FontFamily.Monospace,
-        modifier = modifier
-            // Tween, not spring — the label swaps like a segment flipping, no bounce.
-            .animateContentSize(animationSpec = tween(durationMillis = 120))
-            .clip(RoundedCornerShape(12.dp))
-            .clickable { if (armed) onDelete() else armed = true }
-            .padding(vertical = 12.dp, horizontal = 4.dp),
-    )
-}

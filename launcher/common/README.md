@@ -1,10 +1,11 @@
 # common
 
 Shared library module for ugly launcher (`com.uglyos.common`). Consumed by
-`:app`. Two pieces today: the Nord theme and a todo.txt library.
+`:app`. Three pieces today: the Nord theme, a todo.txt library, and a notes library.
 
 - `theme/` — shared Nord theme, exposed transitively (Compose + Material3).
 - `todo/` — todo.txt parsing and editing.
+- `notes/` — markdown notes storage (a directory of `.md` files).
 
 ## todo.txt library
 
@@ -43,6 +44,28 @@ x (A) 2026-06-28 2026-06-20 Renew registration +Errands @dmv due:2026-07-01
 │  │      └ completion date (done tasks only)
 │  └ priority
 └ completion marker
+```
+
+## notes library
+
+`com.uglyos.common.notes` reads and writes a directory of markdown notes, one
+`<title>.md` file per note. Kept dependency-free (`java.io.File` only) so it stays
+testable without Android.
+
+- **`Note`** — an immutable snapshot of one note: `title` (the filename without its
+  `.md` extension), the full markdown `body`, and `lastModified` epoch millis (used
+  to sort newest-first and to date a preview).
+- **`NotesDir`** — a directory of notes. `list()` returns every `*.md` note,
+  newest-modified first, skipping unreadable files. `save()` creates or edits a note,
+  disambiguating a colliding title with " 2", " 3", ... falling back to "untitled" on
+  a blank title, and sanitizing filename-illegal characters; a rename drops the old
+  file. `delete()` removes a note's file. Writes go through a temp file + atomic
+  rename, mirroring `TodoFile`, so a crash mid-write can't leave a half-written note.
+
+```kotlin
+val notes = NotesDir(dir)
+val saved = notes.save(original = null, title = "groceries", body = "- eggs\n- milk")
+notes.delete(saved)
 ```
 
 ## Tests

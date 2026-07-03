@@ -66,6 +66,7 @@ import java.io.File
 object Settings {
     private const val PREFS = "ugly_launcher"
     private const val KEY_TODO_DIR = "todo_dir"
+    private const val KEY_NOTES_DIR = "notes_dir"
     private const val KEY_EXCLUDED_CALENDARS = "excluded_calendars"
 
     private fun prefs(context: Context) =
@@ -86,6 +87,15 @@ object Settings {
     /** Persist the chosen todo dir. */
     fun setTodoDir(context: Context, path: String) {
         prefs(context).edit().putString(KEY_TODO_DIR, path).apply()
+    }
+
+    /** The notes dir path, or null if the user hasn't set one. */
+    fun notesDir(context: Context): File? =
+        prefs(context).getString(KEY_NOTES_DIR, null)?.let(::File)
+
+    /** Persist the chosen notes dir. */
+    fun setNotesDir(context: Context, path: String) {
+        prefs(context).edit().putString(KEY_NOTES_DIR, path).apply()
     }
 
     /**
@@ -164,6 +174,7 @@ fun SettingsPage() {
     val context = LocalContext.current
     val colors = UglyTheme.colors
     var todoDir by remember { mutableStateOf(Settings.todoDir(context)) }
+    var notesDir by remember { mutableStateOf(Settings.notesDir(context)) }
     // Recheck on resume: the user grants these on system screens, outside our ui.
     var hasAccess by remember { mutableStateOf(Settings.hasStorageAccess()) }
     var hasContacts by remember { mutableStateOf(hasContactsAccess(context)) }
@@ -209,6 +220,16 @@ fun SettingsPage() {
         }
     }
 
+    val notesPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { uri ->
+        val path = uri?.toFilesystemPath()
+        if (path != null) {
+            Settings.setNotesDir(context, path)
+            notesDir = File(path)
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -231,6 +252,14 @@ fun SettingsPage() {
                 value = todoDir?.path ?: "tap to choose a folder",
                 configured = todoDir != null,
                 onClick = { picker.launch(null) },
+            )
+        }
+        SettingSection("notes") {
+            SettingRow(
+                label = "notes dir",
+                value = notesDir?.path ?: "tap to choose a folder",
+                configured = notesDir != null,
+                onClick = { notesPicker.launch(null) },
             )
         }
         SettingSection("quick launch") {

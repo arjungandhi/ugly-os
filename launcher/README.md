@@ -28,6 +28,7 @@ APK output: `launcher/app/build/outputs/apk/debug/app-debug.apk`
 - `app/src/main/java/com/uglyos/launcher/Settings.kt` — settings page + persisted config
 - `app/src/main/java/com/uglyos/launcher/TodoPage.kt` — interactive todo.txt page with mode switcher
 - `app/src/main/java/com/uglyos/launcher/TodoModeStore.kt` — user-defined todo modes (filters) + selected-mode persistence
+- `app/src/main/java/com/uglyos/launcher/NotesPage.kt` — markdown notes page: list/search + full-screen editor
 - `app/src/main/java/com/uglyos/launcher/Search.kt` — global spotlight-style search (left of home)
 - `app/src/main/java/com/uglyos/launcher/DateTimeWidget.kt` — home clock, calendar card, now-playing bar, next-event line
 - `app/src/main/java/com/uglyos/launcher/NextEvent.kt` — reads the next calendar event via the calendar provider
@@ -35,15 +36,16 @@ APK output: `launcher/app/build/outputs/apk/debug/app-debug.apk`
 - `app/src/main/java/com/uglyos/launcher/Frecency.kt` — per-app launch history feeding search ranking
 - `app/src/main/AndroidManifest.xml` — registers as HOME, queries launchable apps
 - `app/src/main/res/` — icon (adaptive, Nord-themed monkey), theme, strings
-- `common/` — shared library module (Nord theme, todo.txt library); see `common/README.md`
+- `common/` — shared library module (Nord theme, todo.txt library, notes library); see `common/README.md`
 
 ## Basics
 
 - Package id: `com.uglyos.launcher`. minSdk 30, compileSdk 35.
 - Set as default: home button → pick "ugly launcher". Revert: Settings → Apps → Default apps → Home app.
-- Pages, left to right: search, home, todo, settings.
+- Pages, left to right: search, home, todo, notes, settings.
 - The "todo dir" (set in settings) is the directory holding `todo.txt` and
-  `done.txt`. Reading arbitrary paths needs all-files access (`MANAGE_EXTERNAL_STORAGE`).
+  `done.txt`; the "notes dir" (also set in settings) holds the `.md` note files.
+  Reading arbitrary paths needs all-files access (`MANAGE_EXTERNAL_STORAGE`).
   Settings persist in the `ugly_launcher` prefs.
 
 ## Features
@@ -74,6 +76,12 @@ APK output: `launcher/app/build/outputs/apk/debug/app-debug.apk`
   added there, so a task lands in the mode you made it in. The chosen mode persists
   across restarts. Add/edit/complete tasks (done archived to done.txt); live-reload
   via `FileObserver` so Syncthing edits show up. Modes persist in `todo_modes` prefs.
+- **Notes** — a page over `notes_dir`, one `<title>.md` file per note. The list is
+  newest-modified first; a search field narrows it by title or body. Tapping a note
+  opens a full-screen editor (single-line title over a scrollable markdown body);
+  "new note" opens a blank one, and the editor's armed delete removes it. Saves and
+  deletes run off the main thread through the notes library; live-reload via
+  `FileObserver` so Syncthing edits show up.
 - **Settings** — grouped by signpost (data, quick launch, permissions, next
   event). Permissions are requested inline, routing to system settings once
   permanently denied.

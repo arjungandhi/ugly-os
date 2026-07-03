@@ -105,7 +105,7 @@ class MainActivity : ComponentActivity() {
  */
 private const val SEARCH_PAGE = 0
 private const val HOME_PAGE = 1
-private const val PAGE_COUNT = 4
+private const val PAGE_COUNT = 5
 
 @Composable
 fun Home() {
@@ -138,6 +138,7 @@ fun Home() {
                             modifier = Modifier.drawerDrag(drawerOffset, heightPx, scope)
                         )
                         2 -> TodoPage()
+                        3 -> NotesPage()
                         else -> SettingsPage()
                     }
                 }
