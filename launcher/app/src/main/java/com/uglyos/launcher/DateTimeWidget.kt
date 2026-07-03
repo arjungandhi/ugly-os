@@ -1,13 +1,17 @@
 package com.uglyos.launcher
 
+import android.app.PendingIntent
 import android.content.ActivityNotFoundException
 import android.content.BroadcastReceiver
 import android.content.ContentUris
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.media.session.MediaController
+import android.media.session.MediaSessionManager
 import android.provider.CalendarContract
 import android.widget.Toast
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
@@ -36,6 +40,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -43,6 +51,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.uglyos.common.theme.UglyTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -110,6 +121,7 @@ fun DateTimeWidget(modifier: Modifier = Modifier) {
             onClick = { openCalendar(context) },
             modifier = Modifier.fillMaxWidth(),
         )
+        NowPlayingBar(modifier = Modifier.fillMaxWidth())
         NextEvents(
             now = now,
             onClick = { openCalendar(context) },
@@ -204,6 +216,241 @@ private fun humanizeMinutes(mins: Long): String = when {
     mins % 60 == 0L -> "${mins / 60}h"
     else -> "%dh %02dm".format(mins / 60, mins % 60)
 }
+
+/** The active session paired with its snapshot, so the bar can read and drive it. */
+private class MediaHandle(val controller: MediaController, val nowPlaying: NowPlaying)
+
+/**
+ * Track whatever app is currently playing (or paused) audio and expose it as a
+ * [MediaHandle], or null when nothing is live. Requires notification-listener
+ * access; without it we simply stay null. We watch two things: the set of active
+ * sessions (a new app starts, one goes away) and, on the chosen session, its own
+ * playback/metadata changes — so a play→pause or a track skip updates in place.
+ * All callbacks land on the main thread, so the state writes are safe. [hasAccess]
+ * is rechecked on resume, so granting access lights the bar up without a relaunch,
+ * and — unlike a resume counter — only rebuilds the observer when it actually flips.
+ */
+@Composable
+private fun rememberNowPlaying(): MediaHandle? {
+    val context = LocalContext.current
+    var handle by remember { mutableStateOf<MediaHandle?>(null) }
+
+    var hasAccess by remember { mutableStateOf(hasMediaAccess(context)) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) hasAccess = hasMediaAccess(context)
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    DisposableEffect(hasAccess) {
+        if (!hasAccess) {
+            handle = null
+            return@DisposableEffect onDispose { }
+        }
+        val manager =
+            context.getSystemService(Context.MEDIA_SESSION_SERVICE) as MediaSessionManager
+        val component = mediaListenerComponent(context)
+
+        // The session we're watching and the callback bound to it, kept so we can
+        // detach when the active session hands off to another app.
+        var tracked: MediaController? = null
+        var trackedCallback: MediaController.Callback? = null
+
+        fun detach() {
+            trackedCallback?.let { cb -> tracked?.unregisterCallback(cb) }
+            tracked = null
+            trackedCallback = null
+        }
+
+        // Push the tracked session's live state into the bar — a local read, no IPC,
+        // so playback/metadata ticks are cheap.
+        fun publish() {
+            val c = tracked
+            handle = c?.toNowPlaying()?.let { MediaHandle(c, it) }
+        }
+
+        // Re-pick the controlling session from the live set (a binder call), only
+        // when the set changes or a session dies. getActiveSessions hands back a
+        // fresh MediaController each call, so we diff by the stable session token
+        // rather than instance identity to avoid needless callback churn.
+        fun resync() {
+            val controllers = try {
+                manager.getActiveSessions(component)
+            } catch (e: SecurityException) {
+                emptyList()
+            }
+            val chosen = pickMediaController(controllers)
+            if (chosen?.sessionToken != tracked?.sessionToken) {
+                detach()
+                if (chosen != null) {
+                    val cb = object : MediaController.Callback() {
+                        override fun onPlaybackStateChanged(state: android.media.session.PlaybackState?) = publish()
+                        override fun onMetadataChanged(metadata: android.media.MediaMetadata?) = publish()
+                        override fun onSessionDestroyed() = resync()
+                    }
+                    chosen.registerCallback(cb)
+                    tracked = chosen
+                    trackedCallback = cb
+                }
+            }
+            publish()
+        }
+
+        val sessionsListener =
+            MediaSessionManager.OnActiveSessionsChangedListener { resync() }
+        runCatching { manager.addOnActiveSessionsChangedListener(sessionsListener, component) }
+        resync()
+
+        onDispose {
+            runCatching { manager.removeOnActiveSessionsChangedListener(sessionsListener) }
+            detach()
+        }
+    }
+    return handle
+}
+
+/**
+ * A quiet control that appears between the calendar card and the next-event
+ * stack only when something is playing or paused: a live dot (accent while
+ * sound is out, else muted), the title over the artist, and prev / play-pause /
+ * next. Nothing renders when no session is live — a silent phone stays clean.
+ */
+@Composable
+private fun NowPlayingBar(modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val handle = rememberNowPlaying() ?: return
+    val colors = UglyTheme.colors
+    val np = handle.nowPlaying
+    val controls = handle.controller.transportControls
+
+    Spacer(Modifier.height(18.dp))
+    Row(
+        modifier = modifier.padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier
+                .size(6.dp)
+                .clip(CircleShape)
+                .background(if (np.isPlaying) colors.accent else colors.subtle)
+        )
+        Spacer(Modifier.width(12.dp))
+        Column(
+            Modifier
+                .weight(1f)
+                .clickable { openMediaApp(context, handle.controller) }
+        ) {
+            Text(
+                text = np.title,
+                color = colors.foreground,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium,
+                fontFamily = FontFamily.Monospace,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (np.artist != null) {
+                Text(
+                    text = np.artist,
+                    color = colors.mutedForeground,
+                    fontSize = 12.sp,
+                    fontFamily = FontFamily.Monospace,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        Spacer(Modifier.width(8.dp))
+        TransportButton(Transport.PREV, enabled = np.canPrev) { controls.skipToPrevious() }
+        TransportButton(if (np.isPlaying) Transport.PAUSE else Transport.PLAY, enabled = true) {
+            if (np.isPlaying) controls.pause() else controls.play()
+        }
+        TransportButton(Transport.NEXT, enabled = np.canNext) { controls.skipToNext() }
+    }
+}
+
+/**
+ * Open the app behind the current session. Prefer its own [sessionActivity]
+ * pending intent — that drops you on the exact now-playing screen — and fall
+ * back to a plain launch by package when the app didn't supply one.
+ */
+private fun openMediaApp(context: Context, controller: MediaController) {
+    controller.sessionActivity?.let { pending ->
+        try {
+            pending.send()
+            return
+        } catch (e: PendingIntent.CanceledException) {
+            // Stale intent; fall through to a package launch.
+        }
+    }
+    launchApp(context, controller.packageName)
+}
+
+/** The four transport glyphs, drawn as shapes so they stay in the mono palette. */
+private enum class Transport { PREV, PLAY, PAUSE, NEXT }
+
+/** A 40dp tap target holding one hand-drawn [Transport] glyph, dimmed when off. */
+@Composable
+private fun TransportButton(kind: Transport, enabled: Boolean, onClick: () -> Unit) {
+    val colors = UglyTheme.colors
+    val tint = if (enabled) colors.foreground else colors.subtle
+    Box(
+        modifier = Modifier
+            .size(40.dp)
+            .clip(CircleShape)
+            .clickable(enabled = enabled, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Canvas(Modifier.size(16.dp)) { drawTransport(kind, tint) }
+    }
+}
+
+/**
+ * Draw a transport glyph filling the canvas: a triangle for play, twin bars for
+ * pause, and a bar-plus-triangle for each skip. Kept as vector shapes rather
+ * than a font glyph so they render identically on every device and never fall
+ * back to an emoji.
+ */
+private fun DrawScope.drawTransport(kind: Transport, tint: Color) {
+    val w = size.width
+    val h = size.height
+    when (kind) {
+        Transport.PLAY -> drawPath(triangle(0f, w, h, pointRight = true), tint)
+        Transport.PAUSE -> {
+            val bar = w * 0.30f
+            drawRect(tint, topLeft = Offset(w * 0.12f, 0f), size = androidx.compose.ui.geometry.Size(bar, h))
+            drawRect(tint, topLeft = Offset(w - w * 0.12f - bar, 0f), size = androidx.compose.ui.geometry.Size(bar, h))
+        }
+        Transport.PREV -> {
+            val bar = w * 0.16f
+            drawRect(tint, topLeft = Offset(0f, 0f), size = androidx.compose.ui.geometry.Size(bar, h))
+            drawPath(triangle(bar, w, h, pointRight = false), tint)
+        }
+        Transport.NEXT -> {
+            val bar = w * 0.16f
+            drawPath(triangle(0f, w - bar, h, pointRight = true), tint)
+            drawRect(tint, topLeft = Offset(w - bar, 0f), size = androidx.compose.ui.geometry.Size(bar, h))
+        }
+    }
+}
+
+/** A filled triangle spanning [left]..[right] horizontally and 0..[h] vertically. */
+private fun triangle(left: Float, right: Float, h: Float, pointRight: Boolean): Path =
+    Path().apply {
+        if (pointRight) {
+            moveTo(left, 0f)
+            lineTo(left, h)
+            lineTo(right, h / 2f)
+        } else {
+            moveTo(right, 0f)
+            lineTo(right, h)
+            lineTo(left, h / 2f)
+        }
+        close()
+    }
 
 /**
  * Open the user's calendar app to today's date via the standard

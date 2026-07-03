@@ -53,6 +53,22 @@
             </intent-filter>
         </activity>
 
+        <!--
+          A no-op notification listener. We never read notifications; being an
+          enabled listener is just the credential Android requires to read and
+          control active media sessions, which powers the home-screen music bar.
+          Enabled by the user via the notification-access screen.
+        -->
+        <service
+            android:name=".UglyNotificationListenerService"
+            android:exported="false"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
     </application>
 
 </manifest>

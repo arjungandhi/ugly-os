@@ -28,8 +28,9 @@ APK output: `launcher/app/build/outputs/apk/debug/app-debug.apk`
 - `app/src/main/java/com/uglyos/launcher/Settings.kt` — settings page + persisted config
 - `app/src/main/java/com/uglyos/launcher/TodoPage.kt` — read-only todo.txt list pages
 - `app/src/main/java/com/uglyos/launcher/Search.kt` — global spotlight-style search (left of home)
-- `app/src/main/java/com/uglyos/launcher/DateTimeWidget.kt` — home clock, calendar card, next-event line
+- `app/src/main/java/com/uglyos/launcher/DateTimeWidget.kt` — home clock, calendar card, now-playing bar, next-event line
 - `app/src/main/java/com/uglyos/launcher/NextEvent.kt` — reads the next calendar event via the calendar provider
+- `app/src/main/java/com/uglyos/launcher/MediaControl.kt` — reads/controls the active media session (notification-listener service + helpers)
 - `app/src/main/java/com/uglyos/launcher/Frecency.kt` — per-app launch history feeding search ranking
 - `app/src/main/AndroidManifest.xml` — registers as HOME, queries launchable apps
 - `app/src/main/res/` — icon (adaptive, Nord-themed monkey), theme, strings
@@ -49,6 +50,11 @@ APK output: `launcher/app/build/outputs/apk/debug/app-debug.apk`
 - **Home** — dot-matrix clock, calendar card, and a next-event stack: up to three
   of the next hour's events with live countdowns, hidden when the hour is clear.
   Which calendars feed it is user-controlled in settings.
+- **Now playing** — a control that surfaces between the calendar card and the
+  next-event stack only when a media session is live: title, artist, and prev /
+  play-pause / next. Hand-drawn glyphs, hidden when nothing is playing. Needs
+  notification-listener access (Android's only route to other apps' media
+  sessions), granted from settings → permissions → media controls.
 - **Quick launch** — a dock of user-pinned apps as monochrome glyphs on a fixed
   grid (default 2 × 5). Tap launches, long-press removes, `+` pins. Seeded on
   first run from default shortcuts, then it's whatever you pin. Persists in

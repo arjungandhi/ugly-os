@@ -1,6 +1,7 @@
 package com.uglyos.launcher
 
 import android.Manifest
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -167,6 +168,7 @@ fun SettingsPage() {
     var hasAccess by remember { mutableStateOf(Settings.hasStorageAccess()) }
     var hasContacts by remember { mutableStateOf(hasContactsAccess(context)) }
     var hasCalendar by remember { mutableStateOf(hasCalendarAccess(context)) }
+    var hasMedia by remember { mutableStateOf(hasMediaAccess(context)) }
     var calendarList by remember { mutableStateOf(calendars(context)) }
     var excludedCals by remember { mutableStateOf(Settings.excludedCalendars(context)) }
     var dockRows by remember { mutableStateOf(QuickLaunchStore.rows(context)) }
@@ -178,6 +180,7 @@ fun SettingsPage() {
                 hasAccess = Settings.hasStorageAccess()
                 hasContacts = hasContactsAccess(context)
                 hasCalendar = hasCalendarAccess(context)
+                hasMedia = hasMediaAccess(context)
                 calendarList = calendars(context)
             }
         }
@@ -299,6 +302,29 @@ fun SettingsPage() {
                     } else {
                         markAsked(context, "calendar_asked")
                         calendarPermission.launch(Manifest.permission.READ_CALENDAR)
+                    }
+                },
+            )
+            SettingDivider()
+            SettingRow(
+                label = "media controls",
+                value = if (hasMedia) "granted" else "tap to grant",
+                configured = hasMedia,
+                onClick = {
+                    // Notification access is a system toggle, not a runtime
+                    // permission; deep-link straight to our listener's page, and
+                    // fall back to the plain list screen on ROMs without the detail
+                    // activity so a tap never crashes the settings page.
+                    val detail = Intent(AndroidSettings.ACTION_NOTIFICATION_LISTENER_DETAIL_SETTINGS)
+                        .putExtra(
+                            AndroidSettings.EXTRA_NOTIFICATION_LISTENER_COMPONENT_NAME,
+                            ComponentName(context, UglyNotificationListenerService::class.java)
+                                .flattenToString(),
+                        )
+                    runCatching { context.startActivity(detail) }.onFailure {
+                        runCatching {
+                            context.startActivity(Intent(AndroidSettings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                        }
                     }
                 },
             )
