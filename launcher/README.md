@@ -26,7 +26,7 @@ APK output: `launcher/app/build/outputs/apk/debug/app-debug.apk`
 - `app/src/main/java/com/uglyos/launcher/QuickLaunchStore.kt` — dock pins + grid-size persistence
 - `app/src/main/java/com/uglyos/launcher/AppGlyph.kt` — monochrome app-icon glyph, shared by drawer + dock
 - `app/src/main/java/com/uglyos/launcher/Settings.kt` — settings page + persisted config
-- `app/src/main/java/com/uglyos/launcher/TodoPage.kt` — read-only todo.txt list pages
+- `app/src/main/java/com/uglyos/launcher/TodoPage.kt` — interactive todo.txt page with mode switcher
 - `app/src/main/java/com/uglyos/launcher/Search.kt` — global spotlight-style search (left of home)
 - `app/src/main/java/com/uglyos/launcher/DateTimeWidget.kt` — home clock, calendar card, now-playing bar, next-event line
 - `app/src/main/java/com/uglyos/launcher/NextEvent.kt` — reads the next calendar event via the calendar provider
@@ -40,7 +40,7 @@ APK output: `launcher/app/build/outputs/apk/debug/app-debug.apk`
 
 - Package id: `com.uglyos.launcher`. minSdk 30, compileSdk 35.
 - Set as default: home button → pick "ugly launcher". Revert: Settings → Apps → Default apps → Home app.
-- Pages, left to right: search, home, todo, work, settings.
+- Pages, left to right: search, home, todo, settings.
 - The "monkey dir" (set in settings) is the directory the launcher reads data
   from. Reading arbitrary paths needs all-files access (`MANAGE_EXTERNAL_STORAGE`).
   Settings persist in the `ugly_launcher` prefs.
@@ -63,9 +63,10 @@ APK output: `launcher/app/build/outputs/apk/debug/app-debug.apk`
   contacts, web fallback) and ranks all hits on one scale; the top hit is what
   Enter opens. Graded fuzzy scoring plus a frecency boost (`frecency` prefs,
   ~3-day half-life). Add a source with another provider in `Search.kt`.
-- **Todo / work** — read `monkey_dir/atp/todo/todo.txt` (read-only). "todo" shows
-  every task except `@pattern`; "work" shows only `@pattern`. Live-reload via
-  `FileObserver` so Syncthing edits show up.
+- **Todo** — one page over `monkey_dir/atp/todo/todo.txt` with a mode switcher in
+  the header: "todo" shows every task except `@pattern`, "work" shows only
+  `@pattern`. Tap the header to switch. Add/edit/complete tasks (done archived to
+  done.txt); live-reload via `FileObserver` so Syncthing edits show up.
 - **Settings** — grouped by signpost (data, quick launch, permissions, next
   event). Permissions are requested inline, routing to system settings once
   permanently denied.

@@ -5,6 +5,7 @@ import android.os.FileObserver
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -36,7 +37,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -91,12 +91,13 @@ private sealed interface TodoState {
     object NoAccess : TodoState
     /** Access granted, but the todo.txt file wasn't found. */
     object NotFound : TodoState
-    /** Parsed tasks, already filtered and sorted for display. */
+    /** Every task, keyed to its file line and sorted for display. Modes filter
+     * this in memory, so a mode switch never touches disk. */
     data class Loaded(val tasks: List<IndexedTask>) : TodoState
 }
 
-/** Read and filter the todo.txt, resolving to the right display state. */
-private fun loadTodoState(context: Context, filter: (Task) -> Boolean): TodoState {
+/** Read the whole todo.txt, sorted for display, resolving to the right state. */
+private fun loadTodoState(context: Context): TodoState {
     val todoFile = Settings.todoFile(context) ?: return TodoState.NoDir
     if (!Settings.hasStorageAccess()) return TodoState.NoAccess
     if (!todoFile.exists()) return TodoState.NotFound
@@ -104,7 +105,6 @@ private fun loadTodoState(context: Context, filter: (Task) -> Boolean): TodoStat
         val list = TodoList.parse(todoFile.readText())
         val items = list.tasks
             .mapIndexed { i, t -> IndexedTask(i, t) }
-            .filter { filter(it.task) }
             .sortedWith(compareBy(TodoList.DISPLAY_ORDER) { it.task })
         TodoState.Loaded(items)
     } catch (e: Exception) {
@@ -174,34 +174,51 @@ private fun watchDir(dir: File, onChange: () -> Unit): FileObserver {
 private data class TaskEdit(val index: Int?, val task: Task)
 
 /**
- * An interactive todo.txt list page. [filter] narrows which tasks appear so the
- * same component can back several pages (e.g. one excluding a context, one
- * showing only it). [hiddenContext] is the `@context` that scopes the page — it's
- * on every row here, so the page title already says it and we strip it from the
- * task text rather than repeat it. The file is read directly and watched with
- * FileObserver, so changes (from edits here or synced in by Syncthing) appear
- * live; it also reloads on resume. Tap a task's dot to complete it (archived to
- * done.txt), tap its text to edit or delete it, and use "add task" to append a line.
+ * One selectable view of the todo file: a [label] for the mode switcher, the
+ * `@context` this mode scopes to (hidden on rows and re-attached when adding),
+ * and the [filter] that narrows which tasks it shows.
+ */
+data class TodoMode(
+    val label: String,
+    val hiddenContext: String? = null,
+    val filter: (Task) -> Boolean,
+)
+
+/**
+ * An interactive todo.txt list page backed by one file, viewed through a set of
+ * [modes] the user switches between via a header (e.g. "todo" vs "work"). Each
+ * mode's `filter` narrows which tasks appear and its `hiddenContext` is the
+ * `@context` that scopes it — on every row in that mode, so the switcher already
+ * names it and we strip it from the task text rather than repeat it. The file is
+ * read whole and watched with FileObserver, so changes (from edits here or synced
+ * in by Syncthing) appear live; it also reloads on resume. Switching modes just
+ * re-filters the loaded list in memory. Tap a task's dot to complete it (archived
+ * to done.txt), tap its text to edit or delete it, and use "add task" to append.
  */
 @Composable
-fun TodoPage(title: String, hiddenContext: String? = null, filter: (Task) -> Boolean) {
+fun TodoPage(modes: List<TodoMode>) {
     val context = LocalContext.current
     val colors = UglyTheme.colors
     val scope = rememberCoroutineScope()
-    val currentFilter by rememberUpdatedState(filter)
+    var selectedMode by remember { mutableStateOf(0) }
+    val mode = modes[selectedMode.coerceIn(modes.indices)]
+    val hiddenContext = mode.hiddenContext
     var state by remember { mutableStateOf<TodoState>(TodoState.NoDir) }
     var editing by remember { mutableStateOf<TaskEdit?>(null) }
     val lifecycleOwner = LocalLifecycleOwner.current
 
+    // The file is loaded whole and unfiltered; switching modes just re-filters
+    // this in memory below, so a mode switch never reads disk or flashes tasks
+    // from the previous mode.
     DisposableEffect(lifecycleOwner) {
         var observer: FileObserver? = null
 
         fun refresh() {
-            state = loadTodoState(context, currentFilter)
+            state = loadTodoState(context)
             observer?.stopWatching()
             observer = Settings.todoFile(context)?.parentFile
                 ?.takeIf { it.isDirectory }
-                ?.let { dir -> watchDir(dir) { state = loadTodoState(context, currentFilter) } }
+                ?.let { dir -> watchDir(dir) { state = loadTodoState(context) } }
             observer?.startWatching()
         }
 
@@ -225,7 +242,7 @@ fun TodoPage(title: String, hiddenContext: String? = null, filter: (Task) -> Boo
     fun mutate(block: () -> Unit) = scope.launch {
         state = withContext(Dispatchers.IO) {
             block()
-            loadTodoState(context, currentFilter)
+            loadTodoState(context)
         }
     }
 
@@ -235,21 +252,14 @@ fun TodoPage(title: String, hiddenContext: String? = null, filter: (Task) -> Boo
             .padding(horizontal = 20.dp)
             .padding(top = 48.dp, bottom = 40.dp),
     ) {
-        Text(
-            text = title,
-            color = colors.foreground,
-            fontSize = 28.sp,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = 2.sp,
-            fontFamily = FontFamily.Monospace,
-            modifier = Modifier.padding(bottom = 20.dp),
-        )
+        ModeSwitcher(modes = modes, selected = selectedMode, onSelect = { selectedMode = it })
         when (val s = state) {
             TodoState.NoDir -> Hint("set the monkey dir in settings")
             TodoState.NoAccess -> Hint("grant all-files access in settings")
             TodoState.NotFound -> Hint("no todo.txt found in monkey dir")
             is TodoState.Loaded -> {
-                if (s.tasks.isEmpty()) {
+                val visible = s.tasks.filter { mode.filter(it.task) }
+                if (visible.isEmpty()) {
                     Hint("no tasks")
                     Spacer(Modifier.weight(1f))
                 } else {
@@ -257,7 +267,7 @@ fun TodoPage(title: String, hiddenContext: String? = null, filter: (Task) -> Boo
                         modifier = Modifier.fillMaxWidth().weight(1f),
                         verticalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
-                        items(s.tasks) { item ->
+                        items(visible) { item ->
                             TaskRow(
                                 task = item.task,
                                 hiddenContext = hiddenContext,
@@ -298,6 +308,46 @@ fun TodoPage(title: String, hiddenContext: String? = null, filter: (Task) -> Boo
                 { mutate { deleteTask(context, index) }; editing = null }
             },
         )
+    }
+}
+
+/**
+ * The page header doubling as the mode picker: every mode's [TodoMode.label] in
+ * the page-title style, the active one lit `foreground` and bold, the rest muted
+ * and tappable, split by the dot motif. Tapping a label switches the view. With a
+ * single mode it's just the title.
+ */
+@Composable
+private fun ModeSwitcher(modes: List<TodoMode>, selected: Int, onSelect: (Int) -> Unit) {
+    val colors = UglyTheme.colors
+    Row(
+        modifier = Modifier.padding(bottom = 20.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        modes.forEachIndexed { i, mode ->
+            if (i > 0) {
+                Box(
+                    Modifier
+                        .padding(horizontal = 12.dp)
+                        .size(6.dp)
+                        .clip(CircleShape)
+                        .background(colors.subtle),
+                )
+            }
+            val active = i == selected
+            Text(
+                text = mode.label,
+                color = if (active) colors.foreground else colors.mutedForeground,
+                fontSize = 28.sp,
+                fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
+                letterSpacing = 2.sp,
+                fontFamily = FontFamily.Monospace,
+                modifier = Modifier.clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                ) { onSelect(i) },
+            )
+        }
     }
 }
 

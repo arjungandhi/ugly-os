@@ -106,7 +106,7 @@ class MainActivity : ComponentActivity() {
 private const val PATTERN_CONTEXT = "pattern"
 private const val SEARCH_PAGE = 0
 private const val HOME_PAGE = 1
-private const val PAGE_COUNT = 5
+private const val PAGE_COUNT = 4
 
 @Composable
 fun Home() {
@@ -138,8 +138,12 @@ fun Home() {
                         HOME_PAGE -> HomePage(
                             modifier = Modifier.drawerDrag(drawerOffset, heightPx, scope)
                         )
-                        2 -> TodoPage("todo") { PATTERN_CONTEXT !in it.contexts }
-                        3 -> TodoPage("work", hiddenContext = PATTERN_CONTEXT) { PATTERN_CONTEXT in it.contexts }
+                        2 -> TodoPage(
+                            modes = listOf(
+                                TodoMode("todo") { PATTERN_CONTEXT !in it.contexts },
+                                TodoMode("work", hiddenContext = PATTERN_CONTEXT) { PATTERN_CONTEXT in it.contexts },
+                            )
+                        )
                         else -> SettingsPage()
                     }
                 }
