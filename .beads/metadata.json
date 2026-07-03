@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "ugly_os",
+  "project_id": "bc96547b-be20-461b-8527-e542b89b65b9"
+}
