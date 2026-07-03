@@ -62,6 +62,20 @@ emu_serial() {
     return 1
 }
 
+# Shut the emulator down on exit/Ctrl-C, but only if this script started it.
+# The SDK `emulator` binary forks qemu and returns, so control it via adb (by
+# serial) rather than a process id.
+STARTED_EMU=0
+SERIAL=""
+cleanup() {
+    trap - EXIT INT TERM
+    if [ "$STARTED_EMU" = 1 ] && [ -n "$SERIAL" ]; then
+        echo "Shutting down emulator..."
+        adb -s "$SERIAL" emu kill >/dev/null 2>&1 || true
+    fi
+}
+trap cleanup EXIT INT TERM
+
 # 2. Boot it if it isn't already running.
 if SERIAL="$(emu_serial)"; then
     echo "Emulator already running ($SERIAL)."
@@ -69,6 +83,7 @@ else
     echo "Starting emulator '$AVD_NAME'..."
     "$EMULATOR" -avd "$AVD_NAME" -netdelay none -netspeed full \
         >"$REPO_ROOT/scripts/.emulator.log" 2>&1 &
+    STARTED_EMU=1
     echo "  (log: scripts/.emulator.log)"
     echo "Waiting for device to come online..."
     for _ in $(seq 90); do SERIAL="$(emu_serial)" && break || sleep 2; done
@@ -95,3 +110,10 @@ adb shell cmd package set-home-activity "$ACTIVITY" >/dev/null 2>&1 || true
 adb shell am start -n "$ACTIVITY" >/dev/null
 
 echo "ugly launcher is running on $AVD_NAME ($SERIAL)."
+if [ "$STARTED_EMU" = 1 ]; then
+    # Stay attached so Ctrl-C (or the emulator quitting) tears it back down.
+    echo "Leave this running; press Ctrl-C to shut the emulator down."
+    while adb -s "$SERIAL" get-state >/dev/null 2>&1; do sleep 5; done
+else
+    echo "(emulator was already running; leaving it up.)"
+fi

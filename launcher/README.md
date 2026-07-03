@@ -15,10 +15,12 @@ just test       # run unit tests
 ```
 
 `just emulate` creates (once) and boots a `ugly_pixel_9a` AVD, then installs and
-launches the launcher as the default home on it. It needs the Android SDK's
-command-line tools; if `avdmanager` is missing, install them first — on Arch:
-`yay -S android-sdk-cmdline-tools-latest`. The system image is auto-installed on
-first run if absent.
+launches the launcher as the default home on it. It stays attached while the
+emulator runs; Ctrl-C shuts the emulator back down (an emulator that was already
+running when you invoked it is left up). It needs the Android SDK's command-line
+tools; if `avdmanager` is missing, install them first — on Arch: `yay -S
+android-sdk-cmdline-tools-latest`. The system image is auto-installed on first
+run if absent.
 
 `just dev` requires `watchexec`. It is not true hot reload — Compose Live Edit
 is Android Studio only — but it reinstalls and relaunches on every `.kt`/`.xml`
