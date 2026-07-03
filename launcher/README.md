@@ -2,6 +2,21 @@
 
 A custom Android home-screen launcher. Kotlin + Jetpack Compose.
 
+## Screenshots
+
+<table>
+  <tr>
+    <td align="center"><img src="docs/screenshots/home.png" width="200"><br>home</td>
+    <td align="center"><img src="docs/screenshots/search.png" width="200"><br>search</td>
+    <td align="center"><img src="docs/screenshots/todo.png" width="200"><br>todo</td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/screenshots/notes.png" width="200"><br>notes</td>
+    <td align="center"><img src="docs/screenshots/notes-editor.png" width="200"><br>notes editor</td>
+    <td align="center"><img src="docs/screenshots/settings.png" width="200"><br>settings</td>
+  </tr>
+</table>
+
 ## Commands
 
 Run from the repo root:
