@@ -343,7 +343,7 @@ fun NotesPage() {
             if (!dirty()) return@LaunchedEffect
             val t = title
             val b = body
-            delay(600)
+            delay(250)
             write(t, b)
         }
 
@@ -559,33 +559,39 @@ private fun NoteEditor(
                 .padding(top = 24.dp, bottom = 16.dp)
                 .imePadding(),
         ) {
-            BasicTextField(
-                value = title,
-                onValueChange = onTitleChange,
-                singleLine = true,
-                textStyle = TextStyle(
-                    color = colors.foreground,
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = FontFamily.Monospace,
-                ),
-                cursorBrush = SolidColor(colors.accent),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
-                keyboardActions = KeyboardActions(onNext = { bodyFocusRequester.requestFocus() }),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .focusRequester(focusRequester),
-            ) { inner ->
-                if (title.isEmpty()) {
-                    Text(
-                        text = "title",
-                        color = colors.mutedForeground,
+            // The title shares its line with a quiet save-state dot on the right —
+            // the only feedback the silent autosave gives, kept out of thumb reach
+            // since it's not interactive.
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                BasicTextField(
+                    value = title,
+                    onValueChange = onTitleChange,
+                    singleLine = true,
+                    textStyle = TextStyle(
+                        color = colors.foreground,
                         fontSize = 22.sp,
                         fontWeight = FontWeight.Bold,
                         fontFamily = FontFamily.Monospace,
-                    )
+                    ),
+                    cursorBrush = SolidColor(colors.accent),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                    keyboardActions = KeyboardActions(onNext = { bodyFocusRequester.requestFocus() }),
+                    modifier = Modifier
+                        .weight(1f)
+                        .focusRequester(focusRequester),
+                ) { inner ->
+                    if (title.isEmpty()) {
+                        Text(
+                            text = "title",
+                            color = colors.mutedForeground,
+                            fontSize = 22.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace,
+                        )
+                    }
+                    inner()
                 }
-                inner()
+                SaveDot(dirty = dirty)
             }
             Hairline(Modifier.padding(vertical = 16.dp))
             // The field fills at least the visible height, so a tap anywhere in the
@@ -632,7 +638,6 @@ private fun NoteEditor(
             NoteActions(
                 onDone = onDismiss,
                 onDelete = onDelete,
-                dirty = dirty,
                 resetKey = resetKey,
             )
         }
@@ -640,22 +645,39 @@ private fun NoteEditor(
 }
 
 /**
+ * A small non-interactive save-state dot on the title line: filled [accent][UglyTheme]
+ * while an edit is still pending, a hollow subtle ring (echoing the note-row dot) once
+ * the autosave has landed. The only feedback the otherwise-silent autosave gives.
+ */
+@Composable
+private fun SaveDot(dirty: Boolean) {
+    val colors = UglyTheme.colors
+    Box(
+        Modifier
+            .padding(start = 12.dp)
+            .size(10.dp)
+            .clip(CircleShape)
+            .then(
+                if (dirty) Modifier.background(colors.accent)
+                else Modifier.border(1.5.dp, colors.subtle, CircleShape),
+            ),
+    )
+}
+
+/**
  * The editor's pinned action row, all on one line: the quiet tap-to-arm
- * [DeleteAction] on the left (shown once the note has been written), a muted
- * `editing…`/`saved` autosave status in the middle (the only feedback that the
- * silent autosave worked), and a bold `done` on the right. Edits have already
- * autosaved, so `done` only dismisses. [resetKey] disarms delete when the note
- * changes.
+ * [DeleteAction] on the left (shown once the note has been written) and a bold
+ * `done` on the right. Edits have already autosaved, so `done` only dismisses.
+ * [resetKey] disarms delete when the note changes.
  */
 @Composable
 private fun NoteActions(
     onDone: () -> Unit,
     onDelete: (() -> Unit)?,
-    dirty: Boolean,
     resetKey: Any?,
 ) {
     // Children align on their text baselines, not their centers, so the smaller
-    // "delete"/status and the bigger "done" sit on one line despite the size gap.
+    // "delete" and the bigger "done" sit on one line despite the size gap.
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -665,13 +687,6 @@ private fun NoteActions(
         } else {
             Spacer(Modifier.width(1.dp))
         }
-        Text(
-            text = if (dirty) "editing…" else "saved",
-            color = UglyTheme.colors.mutedForeground,
-            fontSize = 13.sp,
-            fontFamily = FontFamily.Monospace,
-            modifier = Modifier.alignByBaseline(),
-        )
         SaveAction(enabled = true, onClick = onDone, label = "done", modifier = Modifier.alignByBaseline())
     }
 }
