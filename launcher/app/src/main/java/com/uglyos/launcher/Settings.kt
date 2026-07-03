@@ -58,34 +58,34 @@ import java.io.File
 /**
  * Persistent launcher settings, backed by SharedPreferences.
  *
- * The "monkey dir" is the user-chosen directory the launcher reads its data
- * from (todo.txt, etc.). It's stored as a plain filesystem path so we can read
- * it directly and watch it with FileObserver; Syncthing keeps it in sync across
- * devices. It starts unset. Reading arbitrary paths needs all-files access.
+ * The "todo dir" is the user-chosen directory holding todo.txt and done.txt.
+ * It's stored as a plain filesystem path so we can read it directly and watch
+ * it with FileObserver; Syncthing keeps it in sync across devices. It starts
+ * unset. Reading arbitrary paths needs all-files access.
  */
 object Settings {
     private const val PREFS = "ugly_launcher"
-    private const val KEY_MONKEY_DIR = "monkey_dir"
+    private const val KEY_TODO_DIR = "todo_dir"
     private const val KEY_EXCLUDED_CALENDARS = "excluded_calendars"
 
     private fun prefs(context: Context) =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
-    /** The monkey dir path, or null if the user hasn't set one. */
-    fun monkeyDir(context: Context): File? =
-        prefs(context).getString(KEY_MONKEY_DIR, null)?.let(::File)
+    /** The todo dir path, or null if the user hasn't set one. */
+    fun todoDir(context: Context): File? =
+        prefs(context).getString(KEY_TODO_DIR, null)?.let(::File)
 
-    /** The todo.txt inside the monkey dir, or null if no dir is set. */
+    /** The todo.txt inside the todo dir, or null if no dir is set. */
     fun todoFile(context: Context): File? =
-        monkeyDir(context)?.let { File(it, "atp/todo/todo.txt") }
+        todoDir(context)?.let { File(it, "todo.txt") }
 
-    /** The done.txt inside the monkey dir, where completed tasks are archived. */
+    /** The done.txt inside the todo dir, where completed tasks are archived. */
     fun doneFile(context: Context): File? =
-        monkeyDir(context)?.let { File(it, "atp/todo/done.txt") }
+        todoDir(context)?.let { File(it, "done.txt") }
 
-    /** Persist the chosen monkey dir. */
-    fun setMonkeyDir(context: Context, path: String) {
-        prefs(context).edit().putString(KEY_MONKEY_DIR, path).apply()
+    /** Persist the chosen todo dir. */
+    fun setTodoDir(context: Context, path: String) {
+        prefs(context).edit().putString(KEY_TODO_DIR, path).apply()
     }
 
     /**
@@ -104,7 +104,7 @@ object Settings {
         prefs(context).edit().putStringSet(KEY_EXCLUDED_CALENDARS, excluded).apply()
     }
 
-    /** Whether we hold all-files access, required to read the monkey dir. */
+    /** Whether we hold all-files access, required to read the todo dir. */
     fun hasStorageAccess(): Boolean = Environment.isExternalStorageManager()
 }
 
@@ -163,7 +163,7 @@ private fun Uri.toFilesystemPath(): String? {
 fun SettingsPage() {
     val context = LocalContext.current
     val colors = UglyTheme.colors
-    var monkeyDir by remember { mutableStateOf(Settings.monkeyDir(context)) }
+    var todoDir by remember { mutableStateOf(Settings.todoDir(context)) }
     // Recheck on resume: the user grants these on system screens, outside our ui.
     var hasAccess by remember { mutableStateOf(Settings.hasStorageAccess()) }
     var hasContacts by remember { mutableStateOf(hasContactsAccess(context)) }
@@ -204,8 +204,8 @@ fun SettingsPage() {
     ) { uri ->
         val path = uri?.toFilesystemPath()
         if (path != null) {
-            Settings.setMonkeyDir(context, path)
-            monkeyDir = File(path)
+            Settings.setTodoDir(context, path)
+            todoDir = File(path)
         }
     }
 
@@ -225,11 +225,11 @@ fun SettingsPage() {
             letterSpacing = 2.sp,
             fontFamily = FontFamily.Monospace,
         )
-        SettingSection("data") {
+        SettingSection("todo") {
             SettingRow(
-                label = "monkey dir",
-                value = monkeyDir?.path ?: "tap to choose a folder",
-                configured = monkeyDir != null,
+                label = "todo dir",
+                value = todoDir?.path ?: "tap to choose a folder",
+                configured = todoDir != null,
                 onClick = { picker.launch(null) },
             )
         }

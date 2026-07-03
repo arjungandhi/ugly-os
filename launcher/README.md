@@ -42,8 +42,8 @@ APK output: `launcher/app/build/outputs/apk/debug/app-debug.apk`
 - Package id: `com.uglyos.launcher`. minSdk 30, compileSdk 35.
 - Set as default: home button → pick "ugly launcher". Revert: Settings → Apps → Default apps → Home app.
 - Pages, left to right: search, home, todo, settings.
-- The "monkey dir" (set in settings) is the directory the launcher reads data
-  from. Reading arbitrary paths needs all-files access (`MANAGE_EXTERNAL_STORAGE`).
+- The "todo dir" (set in settings) is the directory holding `todo.txt` and
+  `done.txt`. Reading arbitrary paths needs all-files access (`MANAGE_EXTERNAL_STORAGE`).
   Settings persist in the `ugly_launcher` prefs.
 
 ## Features
@@ -64,7 +64,7 @@ APK output: `launcher/app/build/outputs/apk/debug/app-debug.apk`
   contacts, web fallback) and ranks all hits on one scale; the top hit is what
   Enter opens. Graded fuzzy scoring plus a frecency boost (`frecency` prefs,
   ~3-day half-life). Add a source with another provider in `Search.kt`.
-- **Todo** — one page over `monkey_dir/atp/todo/todo.txt`. The footer names the
+- **Todo** — one page over `todo_dir/todo.txt`. The footer names the
   active mode (bottom-right); tapping it opens a menu where you tap a mode to
   switch to it, long-press a mode to edit or delete it, and "add mode" makes a
   new one. A fresh install is seeded with an "all" mode that shows everything,

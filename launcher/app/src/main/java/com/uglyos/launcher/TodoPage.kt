@@ -94,9 +94,9 @@ private data class IndexedTask(val index: Int, val task: Task)
 
 /** What the todo page has to show once it's tried to load the file. */
 private sealed interface TodoState {
-    /** No monkey dir configured yet. */
+    /** No todo dir configured yet. */
     object NoDir : TodoState
-    /** Monkey dir set, but we lack the all-files access needed to read it. */
+    /** Todo dir set, but we lack the all-files access needed to read it. */
     object NoAccess : TodoState
     /** Access granted, but the todo.txt file wasn't found. */
     object NotFound : TodoState
@@ -288,9 +288,9 @@ fun TodoPage() {
             modifier = Modifier.padding(bottom = 20.dp),
         )
         when (val s = state) {
-            TodoState.NoDir -> Hint("set the monkey dir in settings", highlight = "settings")
+            TodoState.NoDir -> Hint("set the todo dir in settings", highlight = "settings")
             TodoState.NoAccess -> Hint("grant all-files access in settings", highlight = "settings")
-            TodoState.NotFound -> Hint("no todo.txt found in monkey dir", highlight = "monkey dir")
+            TodoState.NotFound -> Hint("no todo.txt found in todo dir", highlight = "todo dir")
             is TodoState.Loaded -> {
                 val visible = s.tasks.filter { mode.matches(it.task) }
                 if (visible.isEmpty()) {
@@ -1291,12 +1291,11 @@ private fun SaveAction(enabled: Boolean, onClick: () -> Unit, modifier: Modifier
         color = if (enabled) colors.accent else colors.subtle,
         fontSize = 16.sp,
         fontWeight = FontWeight.Bold,
-        letterSpacing = 1.sp,
         fontFamily = FontFamily.Monospace,
         modifier = modifier
             .clip(RoundedCornerShape(12.dp))
             .clickable(enabled = enabled, onClick = onClick)
-            .padding(vertical = 12.dp, horizontal = 4.dp),
+            .padding(vertical = 12.dp, horizontal = 8.dp),
     )
 }
 

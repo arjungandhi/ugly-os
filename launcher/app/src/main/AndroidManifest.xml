@@ -2,7 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <!--
-      The monkey dir (and its todo.txt) is a real path we read directly and
+      The todo dir (and its todo.txt) is a real path we read directly and
       watch with FileObserver, kept in sync by Syncthing. That needs broad
       filesystem access; the user grants it once via the all-files screen.
     -->
