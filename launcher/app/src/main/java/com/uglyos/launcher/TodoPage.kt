@@ -2,10 +2,10 @@ package com.uglyos.launcher
 
 import android.content.Context
 import android.os.FileObserver
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -44,7 +45,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -119,14 +124,18 @@ private fun addTask(context: Context, line: String) {
 }
 
 /**
- * The scoping `@`[tag] appended to [line] unless it's already there, so a task
- * added on a context-scoped page (e.g. work) lands on that page. We hide the tag
- * in the display, so it's added silently rather than pre-filled in the editor.
+ * A task line with the current [mode]'s hidden `+project`/`@context` appended
+ * unless already present, so a task added inside a filtered mode lands in that
+ * mode. These tags are hidden in that view (the switcher already names them), so
+ * they're added silently rather than pre-filled in the editor. Inverted modes
+ * scope to nothing, so they append nothing.
  */
-private fun withScopingContext(line: String, tag: String?): String {
-    if (tag == null) return line
+private fun withScoping(line: String, mode: TodoMode): String {
     val task = Task.parse(line) ?: return line
-    return if (tag in task.contexts) line else "$line @$tag"
+    var result = line
+    mode.hiddenProject?.let { if (it !in task.projects) result = "$result +$it" }
+    mode.hiddenContext?.let { if (it !in task.contexts) result = "$result @$it" }
+    return result
 }
 
 /** Replace the line at [index]; a line that parses to nothing deletes it. */
@@ -173,39 +182,52 @@ private fun watchDir(dir: File, onChange: () -> Unit): FileObserver {
 /** A pending add (index null) or edit of an existing line, driving the editor sheet. */
 private data class TaskEdit(val index: Int?, val task: Task)
 
-/**
- * One selectable view of the todo file: a [label] for the mode switcher, the
- * `@context` this mode scopes to (hidden on rows and re-attached when adding),
- * and the [filter] that narrows which tasks it shows.
- */
-data class TodoMode(
-    val label: String,
-    val hiddenContext: String? = null,
-    val filter: (Task) -> Boolean,
-)
+/** A pending add ([index] null) or edit of the mode at [index], driving the mode sheet. */
+private data class ModeEdit(val index: Int?, val mode: TodoMode)
 
 /**
- * An interactive todo.txt list page backed by one file, viewed through a set of
- * [modes] the user switches between via a header (e.g. "todo" vs "work"). Each
- * mode's `filter` narrows which tasks appear and its `hiddenContext` is the
- * `@context` that scopes it — on every row in that mode, so the switcher already
- * names it and we strip it from the task text rather than repeat it. The file is
- * read whole and watched with FileObserver, so changes (from edits here or synced
- * in by Syncthing) appear live; it also reloads on resume. Switching modes just
- * re-filters the loaded list in memory. Tap a task's dot to complete it (archived
- * to done.txt), tap its text to edit or delete it, and use "add task" to append.
+ * An interactive todo.txt list page backed by one file, viewed through the user's
+ * [TodoModeStore] modes. A fresh install is seeded with an "all" mode that shows
+ * everything, but it's editable like any other; each mode narrows to a
+ * `+project`/`@context` (or its inverse) via [TodoMode.matches]. A scoped mode
+ * hides its own tag on every row (the footer already names it) and
+ * auto-appends it to tasks added there. The active mode lives in the footer; tapping
+ * it opens the [ModeMenu] to switch, add, edit, or delete modes. The file is read
+ * whole and watched with FileObserver, so changes (from edits here or synced in by
+ * Syncthing) appear live; it also reloads on resume. Switching modes just re-filters
+ * the loaded list in memory, and the choice persists across restarts. Tap a task's
+ * dot to complete it (archived to done.txt), tap its text to edit or delete it, use
+ * "add task" to append.
  */
 @Composable
-fun TodoPage(modes: List<TodoMode>) {
+fun TodoPage() {
     val context = LocalContext.current
     val colors = UglyTheme.colors
     val scope = rememberCoroutineScope()
-    var selectedMode by remember { mutableStateOf(0) }
-    val mode = modes[selectedMode.coerceIn(modes.indices)]
+    var modes by remember { mutableStateOf(TodoModeStore.modes(context)) }
+    var selectedMode by remember { mutableStateOf(TodoModeStore.selected(context)) }
+    // The mode list can be empty if the user deleted every mode; fall back to the
+    // unfiltered "all" so the page still shows every task.
+    val mode = modes.getOrElse(selectedMode.coerceIn(0, maxOf(0, modes.size - 1))) { TodoModeStore.DEFAULT }
     val hiddenContext = mode.hiddenContext
+    val hiddenProject = mode.hiddenProject
     var state by remember { mutableStateOf<TodoState>(TodoState.NoDir) }
     var editing by remember { mutableStateOf<TaskEdit?>(null) }
+    var editingMode by remember { mutableStateOf<ModeEdit?>(null) }
+    var showModeMenu by remember { mutableStateOf(false) }
     val lifecycleOwner = LocalLifecycleOwner.current
+
+    // Set and persist the selected mode. Callers pass an already-valid index.
+    fun select(index: Int) {
+        selectedMode = index
+        TodoModeStore.setSelected(context, index)
+    }
+
+    // Re-read modes after an add/edit, re-clamping the selection in case it moved.
+    fun reloadModes() {
+        modes = TodoModeStore.modes(context)
+        select(selectedMode.coerceIn(0, maxOf(0, modes.size - 1)))
+    }
 
     // The file is loaded whole and unfiltered; switching modes just re-filters
     // this in memory below, so a mode switch never reads disk or flashes tasks
@@ -252,13 +274,21 @@ fun TodoPage(modes: List<TodoMode>) {
             .padding(horizontal = 20.dp)
             .padding(top = 48.dp, bottom = 40.dp),
     ) {
-        ModeSwitcher(modes = modes, selected = selectedMode, onSelect = { selectedMode = it })
+        Text(
+            text = "todo",
+            color = colors.foreground,
+            fontSize = 28.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 2.sp,
+            fontFamily = FontFamily.Monospace,
+            modifier = Modifier.padding(bottom = 20.dp),
+        )
         when (val s = state) {
             TodoState.NoDir -> Hint("set the monkey dir in settings")
             TodoState.NoAccess -> Hint("grant all-files access in settings")
             TodoState.NotFound -> Hint("no todo.txt found in monkey dir")
             is TodoState.Loaded -> {
-                val visible = s.tasks.filter { mode.filter(it.task) }
+                val visible = s.tasks.filter { mode.matches(it.task) }
                 if (visible.isEmpty()) {
                     Hint("no tasks")
                     Spacer(Modifier.weight(1f))
@@ -271,16 +301,22 @@ fun TodoPage(modes: List<TodoMode>) {
                             TaskRow(
                                 task = item.task,
                                 hiddenContext = hiddenContext,
+                                hiddenProject = hiddenProject,
                                 onComplete = { mutate { completeTask(context, item.index) } },
                                 onEdit = { editing = TaskEdit(item.index, item.task) },
                             )
                         }
                     }
                 }
-                // "add task" is pinned to the bottom, in thumb reach, split from
-                // the scrolling list by a hairline.
+                // The footer — current mode on the left, "add task" on the right —
+                // is pinned to the bottom, in thumb reach, split from the scrolling
+                // list by a hairline.
                 Box(Modifier.fillMaxWidth().height(1.dp).background(colors.subtle))
-                AddRow(onClick = { editing = TaskEdit(index = null, task = Task()) })
+                FooterBar(
+                    mode = mode.label,
+                    onOpenModes = { showModeMenu = true },
+                    onAddTask = { editing = TaskEdit(index = null, task = Task()) },
+                )
             }
         }
     }
@@ -289,12 +325,14 @@ fun TodoPage(modes: List<TodoMode>) {
         TaskSheet(
             edit = edit,
             hiddenContext = hiddenContext,
+            hiddenProject = hiddenProject,
             onDismiss = { editing = null },
             onSave = { task ->
-                // Re-attach the page's scoping context (hidden in the editor) so a
-                // work task stays a work task. A now-empty description means the
-                // task was cleared: skip the add, or delete the existing line.
-                val scoped = withScopingContext(task.format(), hiddenContext)
+                // Re-attach the mode's hidden project/context (kept out of the
+                // editor) so a task added here stays in this mode. A now-empty
+                // description means the task was cleared: skip the add, or delete
+                // the existing line.
+                val scoped = withScoping(task.format(), mode)
                 mutate {
                     when {
                         edit.index == null -> if (task.description.isNotBlank()) addTask(context, scoped)
@@ -309,45 +347,232 @@ fun TodoPage(modes: List<TodoMode>) {
             },
         )
     }
+
+    if (showModeMenu) {
+        ModeMenu(
+            modes = modes,
+            selected = selectedMode,
+            onSelect = { i -> select(i); showModeMenu = false },
+            onEdit = { i -> showModeMenu = false; editingMode = ModeEdit(i, modes[i]) },
+            onAdd = { showModeMenu = false; editingMode = ModeEdit(index = null, mode = TodoMode("")) },
+            onDismiss = { showModeMenu = false },
+        )
+    }
+
+    editingMode?.let { edit ->
+        ModeSheet(
+            edit = edit,
+            onDismiss = { editingMode = null },
+            onSave = { newMode ->
+                if (edit.index == null) {
+                    // A freshly added mode is appended; switch to it so the view
+                    // reflects the mode you just made.
+                    TodoModeStore.add(context, newMode)
+                    modes = TodoModeStore.modes(context)
+                    select(modes.lastIndex.coerceAtLeast(0))
+                } else {
+                    TodoModeStore.update(context, edit.index, newMode)
+                    reloadModes()
+                }
+                editingMode = null
+            },
+            onDelete = edit.index?.let { index ->
+                {
+                    TodoModeStore.removeAt(context, index)
+                    modes = TodoModeStore.modes(context)
+                    // Keep the view steady: deleting a mode before the selected one
+                    // shifts its index down; deleting the selected one leaves the
+                    // index pointing at the next mode (clamped if it was the last).
+                    select(
+                        when {
+                            selectedMode > index -> selectedMode - 1
+                            else -> selectedMode
+                        }.coerceIn(0, maxOf(0, modes.size - 1))
+                    )
+                    editingMode = null
+                }
+            },
+        )
+    }
 }
 
 /**
- * The page header doubling as the mode picker: every mode's [TodoMode.label] in
- * the page-title style, the active one lit `foreground` and bold, the rest muted
- * and tappable, split by the dot motif. Tapping a label switches the view. With a
- * single mode it's just the title.
+ * The pinned footer: "add task" on the left (its "+" in the [DOT_GUTTER], lined up
+ * under the task dots) and the current [mode] in the right corner. Tapping the
+ * mode opens the [ModeMenu] to switch or manage modes.
  */
 @Composable
-private fun ModeSwitcher(modes: List<TodoMode>, selected: Int, onSelect: (Int) -> Unit) {
+private fun FooterBar(mode: String, onOpenModes: () -> Unit, onAddTask: () -> Unit) {
     val colors = UglyTheme.colors
     Row(
-        modifier = Modifier.padding(bottom = 20.dp),
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        modes.forEachIndexed { i, mode ->
-            if (i > 0) {
-                Box(
-                    Modifier
-                        .padding(horizontal = 12.dp)
-                        .size(6.dp)
-                        .clip(CircleShape)
-                        .background(colors.subtle),
+        Row(
+            modifier = Modifier
+                .clickable(onClick = onAddTask)
+                .padding(vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(modifier = Modifier.size(DOT_GUTTER), contentAlignment = Alignment.Center) {
+                Text(
+                    text = "+",
+                    color = colors.accent,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace,
                 )
             }
-            val active = i == selected
             Text(
-                text = mode.label,
-                color = if (active) colors.foreground else colors.mutedForeground,
-                fontSize = 28.sp,
-                fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
-                letterSpacing = 2.sp,
+                text = "add task",
+                color = colors.mutedForeground,
+                fontSize = 15.sp,
                 fontFamily = FontFamily.Monospace,
-                modifier = Modifier.clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                ) { onSelect(i) },
             )
         }
+        Row(
+            modifier = Modifier
+                .clickable(onClick = onOpenModes)
+                .padding(vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = mode,
+                color = colors.foreground,
+                fontSize = 15.sp,
+                fontFamily = FontFamily.Monospace,
+            )
+            // A quiet disclosure caret marks this as a picker (tap opens the menu).
+            DisclosureCaret(colors.subtle)
+        }
+    }
+}
+
+/**
+ * A small hand-drawn disclosure caret ("⌄") marking the mode control as a picker.
+ * Stroked by hand rather than set as a font glyph so it centers cleanly and renders
+ * identically everywhere (no emoji fallback), like the app's other glyphs.
+ */
+@Composable
+private fun DisclosureCaret(color: Color) {
+    Canvas(
+        Modifier
+            .size(width = 10.dp, height = 6.dp)
+            .offset(y = 1.dp),
+    ) {
+        val stroke = 1.5.dp.toPx()
+        // Inset by half the stroke so the round caps aren't clipped at the edges.
+        val inset = stroke / 2f
+        val path = Path().apply {
+            moveTo(inset, inset)
+            lineTo(size.width / 2f, size.height - inset)
+            lineTo(size.width - inset, inset)
+        }
+        drawPath(
+            path,
+            color = color,
+            style = Stroke(width = stroke, cap = StrokeCap.Round, join = StrokeJoin.Round),
+        )
+    }
+}
+
+/**
+ * The mode manager: a bottom sheet listing every mode with its selection marker.
+ * Tap a row to switch to it (and close); "edit" opens its editor; "add mode" makes
+ * a new one. Every mode is editable — the seeded "all" is just an ordinary mode.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ModeMenu(
+    modes: List<TodoMode>,
+    selected: Int,
+    onSelect: (Int) -> Unit,
+    onEdit: (Int) -> Unit,
+    onAdd: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val colors = UglyTheme.colors
+    val sheetState = rememberModalBottomSheetState()
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = colors.surface,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp)
+                .padding(bottom = 32.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(
+                text = "modes",
+                color = colors.mutedForeground,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 2.sp,
+                fontFamily = FontFamily.Monospace,
+                modifier = Modifier.padding(bottom = 12.dp),
+            )
+            modes.forEachIndexed { i, mode ->
+                ModeMenuRow(
+                    label = mode.label,
+                    active = i == selected,
+                    onSelect = { onSelect(i) },
+                    onEdit = { onEdit(i) },
+                )
+            }
+            AddRow(label = "add mode", onClick = onAdd)
+        }
+    }
+}
+
+/**
+ * One row in the [ModeMenu]: a selection marker (filled `accent` when active, a
+ * hollow ring otherwise) and the label, tappable to switch, with a trailing "edit".
+ */
+@Composable
+private fun ModeMenuRow(label: String, active: Boolean, onSelect: () -> Unit, onEdit: () -> Unit) {
+    val colors = UglyTheme.colors
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .clickable(onClick = onSelect)
+                .padding(vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(modifier = Modifier.size(DOT_GUTTER), contentAlignment = Alignment.Center) {
+                if (active) {
+                    Box(Modifier.size(10.dp).clip(CircleShape).background(colors.accent))
+                } else {
+                    Box(Modifier.size(10.dp).clip(CircleShape).border(1.5.dp, colors.subtle, CircleShape))
+                }
+            }
+            Text(
+                text = label,
+                color = if (active) colors.foreground else colors.mutedForeground,
+                fontSize = 16.sp,
+                fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
+                fontFamily = FontFamily.Monospace,
+            )
+        }
+        Text(
+            text = "edit",
+            color = colors.mutedForeground,
+            fontSize = 13.sp,
+            fontFamily = FontFamily.Monospace,
+            modifier = Modifier
+                .clickable(onClick = onEdit)
+                .padding(vertical = 10.dp, horizontal = 4.dp),
+        )
     }
 }
 
@@ -366,11 +591,11 @@ private fun Hint(text: String) {
 private val DOT_GUTTER = 20.dp
 
 /**
- * A tappable "add task" affordance above the list. Its "+" sits in the same
- * [DOT_GUTTER] as the task dots, so the column of markers lines up.
+ * A tappable "+ [label]" affordance. Its "+" sits in the same [DOT_GUTTER] as the
+ * task dots, so the column of markers lines up.
  */
 @Composable
-private fun AddRow(onClick: () -> Unit) {
+private fun AddRow(label: String, onClick: () -> Unit) {
     val colors = UglyTheme.colors
     Row(
         modifier = Modifier
@@ -390,7 +615,7 @@ private fun AddRow(onClick: () -> Unit) {
             )
         }
         Text(
-            text = "add task",
+            text = label,
             color = colors.mutedForeground,
             fontSize = 15.sp,
             fontFamily = FontFamily.Monospace,
@@ -406,7 +631,13 @@ private fun AddRow(onClick: () -> Unit) {
  * due date. Tapping the dot completes; tapping the text opens the editor.
  */
 @Composable
-private fun TaskRow(task: Task, hiddenContext: String?, onComplete: () -> Unit, onEdit: () -> Unit) {
+private fun TaskRow(
+    task: Task,
+    hiddenContext: String?,
+    hiddenProject: String?,
+    onComplete: () -> Unit,
+    onEdit: () -> Unit,
+) {
     // Top-aligned so a task that wraps to several lines keeps its dot and due
     // badge on the first line, rather than floating them to the block's center.
     Row(
@@ -416,7 +647,7 @@ private fun TaskRow(task: Task, hiddenContext: String?, onComplete: () -> Unit, 
     ) {
         CompletionDot(completed = task.completed, onClick = onComplete)
         Text(
-            text = taskAnnotated(task, hiddenContext),
+            text = taskAnnotated(task, hiddenContext, hiddenProject),
             fontSize = 15.sp,
             lineHeight = 20.sp,
             fontFamily = FontFamily.Monospace,
@@ -502,7 +733,7 @@ private fun priorityColor(priority: Char, colors: com.uglyos.common.theme.ThemeC
  * so they read as quiet tags, not part of the sentence. User casing is untouched.
  */
 @Composable
-private fun taskAnnotated(task: Task, hiddenContext: String?): AnnotatedString {
+private fun taskAnnotated(task: Task, hiddenContext: String?, hiddenProject: String?): AnnotatedString {
     val colors = UglyTheme.colors
     val done = task.completed
     val base = if (done) colors.mutedForeground else colors.foreground
@@ -512,7 +743,10 @@ private fun taskAnnotated(task: Task, hiddenContext: String?): AnnotatedString {
                 append("($p) ")
             }
         }
-        val text = task.displayText(hideContexts = setOfNotNull(hiddenContext))
+        val text = task.displayText(
+            hideContexts = setOfNotNull(hiddenContext),
+            hideProjects = setOfNotNull(hiddenProject),
+        )
         text.split(" ").forEachIndexed { i, word ->
             if (i > 0) append(" ")
             val color = if (word.startsWith("@") || word.startsWith("+")) colors.mutedForeground else base
@@ -533,6 +767,7 @@ private fun taskAnnotated(task: Task, hiddenContext: String?): AnnotatedString {
 private fun TaskSheet(
     edit: TaskEdit,
     hiddenContext: String?,
+    hiddenProject: String?,
     onDismiss: () -> Unit,
     onSave: (Task) -> Unit,
     onDelete: (() -> Unit)?,
@@ -543,11 +778,16 @@ private fun TaskSheet(
 
     // Edit the parts we surface as controls; everything else on the task
     // (completion, dates, other tags) is carried through untouched on save. The
-    // scoping context is hidden here and re-attached by the caller; due lives in
-    // its own control, so it's stripped from the editable text.
+    // mode's scoping project/context is hidden here and re-attached by the caller;
+    // due lives in its own control, so it's stripped from the editable text.
     val original = edit.task
     var description by remember(edit) {
-        mutableStateOf(original.editableText(setOfNotNull(hiddenContext)))
+        mutableStateOf(
+            original.editableText(
+                hideContexts = setOfNotNull(hiddenContext),
+                hideProjects = setOfNotNull(hiddenProject),
+            )
+        )
     }
     var priority by remember(edit) { mutableStateOf(original.priority) }
     var due by remember(edit) { mutableStateOf(original.due) }
@@ -591,39 +831,14 @@ private fun TaskSheet(
                 letterSpacing = 2.sp,
                 fontFamily = FontFamily.Monospace,
             )
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(colors.surfaceElevated)
-                    .padding(horizontal = 16.dp, vertical = 14.dp),
-            ) {
-                BasicTextField(
-                    value = description,
-                    onValueChange = { description = it },
-                    textStyle = TextStyle(
-                        color = colors.foreground,
-                        fontSize = 18.sp,
-                        fontFamily = FontFamily.Monospace,
-                    ),
-                    cursorBrush = SolidColor(colors.accent),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                    keyboardActions = KeyboardActions(onDone = { onSave(assemble()) }),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .focusRequester(focusRequester),
-                ) { inner ->
-                    if (description.isEmpty()) {
-                        Text(
-                            text = "what needs doing",
-                            color = colors.mutedForeground,
-                            fontSize = 18.sp,
-                            fontFamily = FontFamily.Monospace,
-                        )
-                    }
-                    inner()
-                }
-            }
+            SheetField(
+                value = description,
+                onValueChange = { description = it },
+                placeholder = "what needs doing",
+                fieldModifier = Modifier.focusRequester(focusRequester),
+                singleLine = false,
+                keyboardActions = KeyboardActions(onDone = { onSave(assemble()) }),
+            )
 
             PrioritySection(
                 selected = priority,
@@ -649,6 +864,140 @@ private fun TaskSheet(
             onDismiss = { showPicker = false },
             onConfirm = { due = it; showPicker = false },
         )
+    }
+}
+
+/**
+ * The add/edit sheet for a custom mode: a name, an optional `+project` and
+ * `@context` to filter on (either or both), and a match/exclude toggle that
+ * inverts the filter. Saving needs a name; an existing mode also gets a delete.
+ */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+private fun ModeSheet(
+    edit: ModeEdit,
+    onDismiss: () -> Unit,
+    onSave: (TodoMode) -> Unit,
+    onDelete: (() -> Unit)?,
+) {
+    val colors = UglyTheme.colors
+    val sheetState = rememberModalBottomSheetState()
+    val focusRequester = remember { FocusRequester() }
+
+    var label by remember(edit) { mutableStateOf(edit.mode.label) }
+    var project by remember(edit) { mutableStateOf(edit.mode.project ?: "") }
+    var context by remember(edit) { mutableStateOf(edit.mode.context ?: "") }
+    var invert by remember(edit) { mutableStateOf(edit.mode.invert) }
+
+    // Accept a tag with or without its sigil and keep only the first token — a
+    // tag has no spaces. Blank means "no filter on this axis".
+    fun clean(raw: String): String? =
+        raw.trim().trimStart('+', '@').substringBefore(' ').ifBlank { null }
+
+    fun assemble() = TodoMode(
+        label = label.trim(),
+        project = clean(project),
+        context = clean(context),
+        invert = invert,
+    )
+
+    LaunchedEffect(edit) {
+        kotlinx.coroutines.delay(100)
+        runCatching { focusRequester.requestFocus() }
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = colors.surface,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp)
+                .padding(bottom = 32.dp),
+            verticalArrangement = Arrangement.spacedBy(20.dp),
+        ) {
+            Text(
+                text = if (edit.index == null) "add mode" else "edit mode",
+                color = colors.mutedForeground,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 2.sp,
+                fontFamily = FontFamily.Monospace,
+            )
+            SheetField(
+                value = label,
+                onValueChange = { label = it },
+                placeholder = "name",
+                fieldModifier = Modifier.focusRequester(focusRequester),
+            )
+            SheetField(value = project, onValueChange = { project = it }, placeholder = "+project")
+            SheetField(value = context, onValueChange = { context = it }, placeholder = "@context")
+
+            LabeledSection("filter") {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Chip("match", selected = !invert, color = colors.accent) { invert = false }
+                    Chip("exclude", selected = invert, color = colors.accent) { invert = true }
+                }
+            }
+
+            SheetAction(
+                label = "save",
+                color = if (label.isBlank()) colors.subtle else colors.accent,
+                onClick = { if (label.isNotBlank()) onSave(assemble()) },
+            )
+            if (onDelete != null) {
+                Box(Modifier.fillMaxWidth().height(1.dp).background(colors.subtle))
+                SheetAction(label = "delete", color = colors.error, onClick = onDelete)
+            }
+        }
+    }
+}
+
+/** A text field styled for the sheets: a rounded elevated well with a muted
+ * placeholder. [fieldModifier] rides the inner field (e.g. a focus request). */
+@Composable
+private fun SheetField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    placeholder: String,
+    fieldModifier: Modifier = Modifier,
+    singleLine: Boolean = true,
+    keyboardActions: KeyboardActions = KeyboardActions.Default,
+) {
+    val colors = UglyTheme.colors
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .background(colors.surfaceElevated)
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+    ) {
+        BasicTextField(
+            value = value,
+            onValueChange = onValueChange,
+            singleLine = singleLine,
+            textStyle = TextStyle(
+                color = colors.foreground,
+                fontSize = 18.sp,
+                fontFamily = FontFamily.Monospace,
+            ),
+            cursorBrush = SolidColor(colors.accent),
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+            keyboardActions = keyboardActions,
+            modifier = fieldModifier.fillMaxWidth(),
+        ) { inner ->
+            if (value.isEmpty()) {
+                Text(
+                    text = placeholder,
+                    color = colors.mutedForeground,
+                    fontSize = 18.sp,
+                    fontFamily = FontFamily.Monospace,
+                )
+            }
+            inner()
+        }
     }
 }
 

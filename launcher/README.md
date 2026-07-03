@@ -27,6 +27,7 @@ APK output: `launcher/app/build/outputs/apk/debug/app-debug.apk`
 - `app/src/main/java/com/uglyos/launcher/AppGlyph.kt` — monochrome app-icon glyph, shared by drawer + dock
 - `app/src/main/java/com/uglyos/launcher/Settings.kt` — settings page + persisted config
 - `app/src/main/java/com/uglyos/launcher/TodoPage.kt` — interactive todo.txt page with mode switcher
+- `app/src/main/java/com/uglyos/launcher/TodoModeStore.kt` — user-defined todo modes (filters) + selected-mode persistence
 - `app/src/main/java/com/uglyos/launcher/Search.kt` — global spotlight-style search (left of home)
 - `app/src/main/java/com/uglyos/launcher/DateTimeWidget.kt` — home clock, calendar card, now-playing bar, next-event line
 - `app/src/main/java/com/uglyos/launcher/NextEvent.kt` — reads the next calendar event via the calendar provider
@@ -63,10 +64,15 @@ APK output: `launcher/app/build/outputs/apk/debug/app-debug.apk`
   contacts, web fallback) and ranks all hits on one scale; the top hit is what
   Enter opens. Graded fuzzy scoring plus a frecency boost (`frecency` prefs,
   ~3-day half-life). Add a source with another provider in `Search.kt`.
-- **Todo** — one page over `monkey_dir/atp/todo/todo.txt` with a mode switcher in
-  the header: "todo" shows every task except `@pattern`, "work" shows only
-  `@pattern`. Tap the header to switch. Add/edit/complete tasks (done archived to
-  done.txt); live-reload via `FileObserver` so Syncthing edits show up.
+- **Todo** — one page over `monkey_dir/atp/todo/todo.txt`. The footer names the
+  active mode (bottom-right); tapping it opens a menu to switch, add, edit, or
+  delete modes. A fresh install is seeded with an "all" mode that shows everything,
+  editable like any other; you define modes that filter on a `+project`, an
+  `@context`, or both — or the inverse (match vs exclude). A scoped mode hides its
+  own tag on each row and auto-appends it to tasks
+  added there, so a task lands in the mode you made it in. The chosen mode persists
+  across restarts. Add/edit/complete tasks (done archived to done.txt); live-reload
+  via `FileObserver` so Syncthing edits show up. Modes persist in `todo_modes` prefs.
 - **Settings** — grouped by signpost (data, quick launch, permissions, next
   event). Permissions are requested inline, routing to system settings once
   permanently denied.

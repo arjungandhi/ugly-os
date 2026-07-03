@@ -54,15 +54,17 @@ data class Task(
 
     /**
      * The [description] cleaned up for showing to a human: the `due:` tag dropped
-     * (it's surfaced separately as a badge/control), along with any `@context`
-     * named in [hideContexts] — useful when a view is already scoped to a context
-     * and shouldn't repeat it on every row. Projects and remaining contexts stay
-     * inline, and non-`due` `key:value` text (e.g. a `9:30` time) is left alone;
-     * runs of whitespace collapse to one space. Falls back to the raw
-     * [description] if nothing would be left (a row is never blank).
+     * (it's surfaced separately as a badge/control), along with any `@context` in
+     * [hideContexts] or `+project` in [hideProjects] — useful when a view is
+     * already scoped to a tag and shouldn't repeat it on every row. Remaining
+     * projects and contexts stay inline, and non-`due` `key:value` text (e.g. a
+     * `9:30` time) is left alone; runs of whitespace collapse to one space. Falls
+     * back to the raw [description] if nothing would be left (a row is never blank).
      */
-    fun displayText(hideContexts: Set<String> = emptySet()): String =
-        strippedDescription(hideContexts).ifEmpty { description }
+    fun displayText(
+        hideContexts: Set<String> = emptySet(),
+        hideProjects: Set<String> = emptySet(),
+    ): String = strippedDescription(hideContexts, hideProjects).ifEmpty { description }
 
     /**
      * Like [displayText], but returns an empty string rather than falling back to
@@ -70,15 +72,22 @@ data class Task(
      * control: blank is fine there, and the fallback would smuggle a `due:` tag
      * back into the text and duplicate it on save.
      */
-    fun editableText(hideContexts: Set<String> = emptySet()): String =
-        strippedDescription(hideContexts)
+    fun editableText(
+        hideContexts: Set<String> = emptySet(),
+        hideProjects: Set<String> = emptySet(),
+    ): String = strippedDescription(hideContexts, hideProjects)
 
-    /** [description] with the `due:` tag and any [hideContexts] removed, collapsed. */
-    private fun strippedDescription(hideContexts: Set<String>): String {
+    /** [description] with the `due:` tag, [hideContexts] and [hideProjects] removed, collapsed. */
+    private fun strippedDescription(hideContexts: Set<String>, hideProjects: Set<String>): String {
         var text = DUE_REGEX.replace(description, "")
         if (hideContexts.isNotEmpty()) {
             text = CONTEXT_REGEX.replace(text) { m ->
                 if (m.groupValues[1] in hideContexts) "" else m.value
+            }
+        }
+        if (hideProjects.isNotEmpty()) {
+            text = PROJECT_REGEX.replace(text) { m ->
+                if (m.groupValues[1] in hideProjects) "" else m.value
             }
         }
         return text.replace(WHITESPACE_REGEX, " ").trim()

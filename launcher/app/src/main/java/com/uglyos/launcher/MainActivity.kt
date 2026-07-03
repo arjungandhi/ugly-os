@@ -103,7 +103,6 @@ class MainActivity : ComponentActivity() {
  * launcher opens on [HOME_PAGE] and a swipe left reveals search. Add or reorder
  * pages in [Home]'s dispatch below and bump [PAGE_COUNT] to match.
  */
-private const val PATTERN_CONTEXT = "pattern"
 private const val SEARCH_PAGE = 0
 private const val HOME_PAGE = 1
 private const val PAGE_COUNT = 4
@@ -138,12 +137,7 @@ fun Home() {
                         HOME_PAGE -> HomePage(
                             modifier = Modifier.drawerDrag(drawerOffset, heightPx, scope)
                         )
-                        2 -> TodoPage(
-                            modes = listOf(
-                                TodoMode("todo") { PATTERN_CONTEXT !in it.contexts },
-                                TodoMode("work", hiddenContext = PATTERN_CONTEXT) { PATTERN_CONTEXT in it.contexts },
-                            )
-                        )
+                        2 -> TodoPage()
                         else -> SettingsPage()
                     }
                 }
