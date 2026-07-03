@@ -42,6 +42,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -168,6 +169,8 @@ fun SettingsPage() {
     var hasCalendar by remember { mutableStateOf(hasCalendarAccess(context)) }
     var calendarList by remember { mutableStateOf(calendars(context)) }
     var excludedCals by remember { mutableStateOf(Settings.excludedCalendars(context)) }
+    var dockRows by remember { mutableStateOf(QuickLaunchStore.rows(context)) }
+    var dockCols by remember { mutableStateOf(QuickLaunchStore.cols(context)) }
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -225,6 +228,21 @@ fun SettingsPage() {
                 value = monkeyDir?.path ?: "tap to choose a folder",
                 configured = monkeyDir != null,
                 onClick = { picker.launch(null) },
+            )
+        }
+        SettingSection("quick launch") {
+            SettingStepper(
+                label = "rows",
+                value = dockRows,
+                range = QuickLaunchStore.ROW_RANGE,
+                onChange = { QuickLaunchStore.setRows(context, it); dockRows = it },
+            )
+            SettingDivider()
+            SettingStepper(
+                label = "columns",
+                value = dockCols,
+                range = QuickLaunchStore.COL_RANGE,
+                onChange = { QuickLaunchStore.setCols(context, it); dockCols = it },
             )
         }
         SettingSection("permissions") {
@@ -404,6 +422,63 @@ private fun SettingRow(label: String, value: String, configured: Boolean, onClic
                 .size(8.dp)
                 .clip(CircleShape)
                 .background(if (configured) colors.success else colors.subtle)
+        )
+    }
+}
+
+/**
+ * A settings row that steps an integer between [range] bounds with − / + taps.
+ * The label reads on the left; the value sits between the two buttons, which dim
+ * to [subtle] at the ends of the range so you can see there's no further to go.
+ */
+@Composable
+private fun SettingStepper(label: String, value: Int, range: IntRange, onChange: (Int) -> Unit) {
+    val colors = UglyTheme.colors
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = label,
+            color = colors.foreground,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.Medium,
+            letterSpacing = 1.sp,
+            fontFamily = FontFamily.Monospace,
+            modifier = Modifier.weight(1f),
+        )
+        StepButton(symbol = "−", enabled = value > range.first) { onChange(value - 1) }
+        Text(
+            text = value.toString(),
+            color = colors.foreground,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.Bold,
+            fontFamily = FontFamily.Monospace,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.width(32.dp),
+        )
+        StepButton(symbol = "+", enabled = value < range.last) { onChange(value + 1) }
+    }
+}
+
+/** A square − / + tap target for [SettingStepper], dimmed when disabled. */
+@Composable
+private fun StepButton(symbol: String, enabled: Boolean, onClick: () -> Unit) {
+    val colors = UglyTheme.colors
+    Box(
+        modifier = Modifier
+            .size(36.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(enabled = enabled, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = symbol,
+            color = if (enabled) colors.foreground else colors.subtle,
+            fontSize = 20.sp,
+            fontFamily = FontFamily.Monospace,
         )
     }
 }

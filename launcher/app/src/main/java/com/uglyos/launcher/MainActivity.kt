@@ -1,5 +1,6 @@
 package com.uglyos.launcher
 
+import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
@@ -72,10 +73,15 @@ fun loadApps(context: Context): List<AppInfo> {
 /** Launch an app by package name via its default launch intent. */
 fun launchApp(context: Context, packageName: String) {
     val intent = context.packageManager.getLaunchIntentForPackage(packageName)
-    if (intent != null) {
+    if (intent == null) {
+        Toast.makeText(context, "Can't launch $packageName", Toast.LENGTH_SHORT).show()
+        return
+    }
+    // The intent can still fail to start if the activity vanished or is protected.
+    try {
         context.startActivity(intent)
         Frecency.record(context, "app:$packageName") // feed launch history into search ranking
-    } else {
+    } catch (e: ActivityNotFoundException) {
         Toast.makeText(context, "Can't launch $packageName", Toast.LENGTH_SHORT).show()
     }
 }
@@ -167,7 +173,7 @@ fun HomePage(modifier: Modifier = Modifier) {
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp)
-                .padding(bottom = 96.dp)
+                .padding(bottom = 56.dp)
         )
     }
 }

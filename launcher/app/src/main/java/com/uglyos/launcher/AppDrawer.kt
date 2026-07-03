@@ -2,12 +2,7 @@ package com.uglyos.launcher
 
 import android.content.Context
 import android.content.Intent
-import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.graphics.drawable.AdaptiveIconDrawable
-import android.graphics.drawable.Drawable
 import android.net.Uri
-import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationVector1D
@@ -55,11 +50,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.ColorFilter
-import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.foundation.Image
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -143,41 +134,6 @@ fun Modifier.drawerDrag(
     )
 }
 
-/** A single-color stand-in for an app icon, tinted to the theme when drawn. */
-private sealed interface AppGlyph {
-    /** The app's OS monochrome layer, rasterized; drawn tinted via [ColorFilter]. */
-    data class Mono(val bitmap: ImageBitmap) : AppGlyph
-    /** Fallback for apps without a monochrome layer: their first letter. */
-    data class Monogram(val letter: String) : AppGlyph
-}
-
-/** The first letter/digit of a label, uppercased, for the monogram fallback. */
-private fun monogramOf(label: String): String =
-    label.trim().firstOrNull { it.isLetterOrDigit() }?.uppercase() ?: "#"
-
-/**
- * Build an [AppGlyph] for [app]. On API 33+ we pull the adaptive icon's
- * monochrome layer — the OS themed-icon glyph — and rasterize it untinted so the
- * UI can recolor it to any Nord role. Apps that never shipped one fall back to a
- * monogram. Runs off the main thread (it touches PackageManager and a Canvas).
- */
-private fun loadGlyph(context: Context, app: AppInfo): AppGlyph {
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        val icon = runCatching { context.packageManager.getApplicationIcon(app.packageName) }.getOrNull()
-        val mono = (icon as? AdaptiveIconDrawable)?.monochrome
-        if (mono != null) return AppGlyph.Mono(rasterize(mono))
-    }
-    return AppGlyph.Monogram(monogramOf(app.label))
-}
-
-/** Draw a drawable into a square bitmap; its alpha carries the glyph to tint. */
-private fun rasterize(drawable: Drawable, sizePx: Int = 144): ImageBitmap {
-    val bmp = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888)
-    drawable.setBounds(0, 0, sizePx, sizePx)
-    drawable.draw(Canvas(bmp))
-    return bmp.asImageBitmap()
-}
-
 /** A drawer row: either a letter signpost or one app. */
 private sealed interface DrawerItem {
     data class Header(val letter: String) : DrawerItem
@@ -228,7 +184,7 @@ fun AppDrawer(
         withContext(Dispatchers.IO) {
             for (app in apps) {
                 if (!glyphs.containsKey(app.packageName)) {
-                    glyphs[app.packageName] = loadGlyph(context, app)
+                    glyphs[app.packageName] = cachedGlyph(context, app)
                 }
             }
         }
@@ -474,36 +430,6 @@ private fun AppCell(
             overflow = TextOverflow.Ellipsis,
             textAlign = TextAlign.Center,
         )
-    }
-}
-
-/** The 56dp surface tile holding a monochrome glyph or a monogram letter. */
-@Composable
-private fun GlyphTile(glyph: AppGlyph?) {
-    val colors = UglyTheme.colors
-    Box(
-        modifier = Modifier
-            .size(56.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(colors.surface),
-        contentAlignment = Alignment.Center,
-    ) {
-        when (glyph) {
-            is AppGlyph.Mono -> Image(
-                bitmap = glyph.bitmap,
-                contentDescription = null,
-                colorFilter = ColorFilter.tint(colors.foreground),
-                modifier = Modifier.fillMaxSize(),
-            )
-            is AppGlyph.Monogram -> Text(
-                text = glyph.letter,
-                color = colors.foreground,
-                fontSize = 22.sp,
-                fontWeight = FontWeight.Medium,
-                fontFamily = FontFamily.Monospace,
-            )
-            null -> {} // still loading: a bare surface tile
-        }
     }
 }
 
