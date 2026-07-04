@@ -7,15 +7,36 @@ import android.media.session.MediaController
 import android.media.session.MediaSessionManager
 import android.media.session.PlaybackState
 import android.service.notification.NotificationListenerService
+import android.service.notification.StatusBarNotification
 import androidx.core.app.NotificationManagerCompat
 
 /**
- * A do-nothing notification listener. We never read notifications through it —
- * its only job is to be an *enabled* listener component, because that's the one
- * credential Android accepts for [MediaSessionManager.getActiveSessions]. Once
- * the user turns it on, we can see and drive whatever app is playing audio.
+ * Our notification listener, enabled by the user on the notification-access
+ * screen. It earns its keep two ways: being an *enabled* listener is the one
+ * credential Android accepts for [MediaSessionManager.getActiveSessions] (the
+ * home-screen music bar), and its posted/removed callbacks feed the dock's
+ * status dots via [NotificationBadges].
+ *
+ * We never read notification *contents* — only which packages currently have a
+ * dismissable one. On every change we recompute the whole set from
+ * [getActiveNotifications] rather than tracking deltas: it's a handful of
+ * entries and sidesteps missed-callback drift.
  */
-class UglyNotificationListenerService : NotificationListenerService()
+class UglyNotificationListenerService : NotificationListenerService() {
+    override fun onListenerConnected() = refreshBadges()
+    override fun onListenerDisconnected() = NotificationBadges.clear()
+    override fun onNotificationPosted(sbn: StatusBarNotification?) = refreshBadges()
+    override fun onNotificationRemoved(sbn: StatusBarNotification?) = refreshBadges()
+
+    private fun refreshBadges() {
+        // activeNotifications throws if the listener isn't connected yet; treat
+        // any failure as "nothing to show" so a transient state can't badge stale.
+        val active = runCatching { activeNotifications }.getOrNull() ?: emptyArray()
+        NotificationBadges.update(
+            active.filter { it.isBadgeWorthy(packageName) }.map { it.packageName }.toSet()
+        )
+    }
+}
 
 /** The component the media APIs want as proof we're an enabled listener. */
 fun mediaListenerComponent(context: Context): ComponentName =

@@ -62,7 +62,8 @@ APK output: `app/build/outputs/apk/debug/app-debug.apk`
 - `Search.kt` — global spotlight-style search (left of home)
 - `DateTimeWidget.kt` — home clock, calendar card, now-playing bar, next-event line
 - `NextEvent.kt` — reads the next calendar event via the calendar provider
-- `MediaControl.kt` — reads/controls the active media session
+- `MediaControl.kt` — the notification listener: controls the active media session and tracks which apps have a live notification
+- `NotificationBadges.kt` — dock badge state (apps with a dismissable notification)
 - `Frecency.kt` — per-app launch history feeding search ranking
 - `AndroidManifest.xml` — registers as HOME, queries launchable apps
 - `res/` — icon (adaptive, Nord-themed monkey), theme, strings
@@ -75,11 +76,14 @@ APK output: `app/build/outputs/apk/debug/app-debug.apk`
   Source calendars are chosen in settings.
 - **Now playing** — a control between the calendar card and next-event stack,
   shown only when a media session is live: title, artist, prev / play-pause /
-  next. Needs notification-listener access (settings → permissions → media
-  controls).
+  next. Needs notification-listener access (settings → permissions →
+  notification access).
 - **Quick launch** — a dock of pinned apps as monochrome glyphs on a fixed grid
   (default 2 × 5). Tap launches, long-press removes, `+` pins. Seeded on first
-  run, then whatever you pin. Persists in `quick_launch` prefs.
+  run, then whatever you pin. A small accent dot rides an app's glyph when it
+  has a live, dismissable notification (an unread text, say) — needs the same
+  notification access as now-playing, and stays dark without it. Persists in
+  `quick_launch` prefs.
 - **Search** — fans the query out to independent providers (apps, settings,
   contacts, web fallback) and ranks all hits on one scale; the top hit opens on
   Enter. Graded fuzzy scoring plus a frecency boost (`frecency` prefs, ~3-day

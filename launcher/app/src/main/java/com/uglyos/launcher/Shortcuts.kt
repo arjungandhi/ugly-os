@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -26,6 +27,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -143,6 +145,9 @@ fun QuickLaunch(modifier: Modifier = Modifier) {
     val glyphs = remember { mutableStateMapOf<String, AppGlyph>() }
     var picking by remember { mutableStateOf(false) }
     var managing by remember { mutableStateOf<AppInfo?>(null) }
+    // Packages with a live notification, driven by the notification listener;
+    // empty when access isn't granted, so the dots just don't appear.
+    val badged by NotificationBadges.packages.collectAsState()
     // Bumped on resume to force a re-resolve even when the pin list is unchanged,
     // so an app uninstalled while we were away gets pruned.
     var reloadKey by remember { mutableIntStateOf(0) }
@@ -207,6 +212,7 @@ fun QuickLaunch(modifier: Modifier = Modifier) {
             cols = cols,
             pins = pins,
             glyphOf = { glyphs[it] },
+            badgedOf = { it in badged },
             onLaunch = { launchApp(context, it) },
             onManage = { pkg -> infos[pkg]?.let { managing = it } },
             onAdd = { picking = true },
@@ -240,6 +246,7 @@ private fun DockGrid(
     cols: Int,
     pins: List<String>,
     glyphOf: (String) -> AppGlyph?,
+    badgedOf: (String) -> Boolean,
     onLaunch: (String) -> Unit,
     onManage: (String) -> Unit,
     onAdd: () -> Unit,
@@ -261,6 +268,7 @@ private fun DockGrid(
                                 val pkg = shown[i]
                                 DockCell(
                                     glyph = glyphOf(pkg),
+                                    badged = badgedOf(pkg),
                                     onClick = { onLaunch(pkg) },
                                     onLongClick = { onManage(pkg) },
                                 )
@@ -275,10 +283,15 @@ private fun DockGrid(
     }
 }
 
-/** One pinned app: a floating glyph, tap to launch, long-press to manage. */
+/**
+ * One pinned app: a floating glyph, tap to launch, long-press to manage. A small
+ * accent dot rides the glyph's top-right corner when [badged] — the quiet "you
+ * have something here" cue, in-palette rather than a loud red count.
+ */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun DockCell(glyph: AppGlyph?, onClick: () -> Unit, onLongClick: () -> Unit) {
+private fun DockCell(glyph: AppGlyph?, badged: Boolean, onClick: () -> Unit, onLongClick: () -> Unit) {
+    val colors = UglyTheme.colors
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -287,7 +300,26 @@ private fun DockCell(glyph: AppGlyph?, onClick: () -> Unit, onLongClick: () -> U
             .padding(vertical = 12.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Glyph(glyph, size = 48.dp)
+        Box(contentAlignment = Alignment.Center) {
+            Glyph(glyph, size = 48.dp)
+            if (badged) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        // Pulled in from the box corner: an adaptive icon's
+                        // monochrome layer sits inside a safe-zone margin, so the
+                        // visible glyph ends short of the 48dp box — this keeps the
+                        // dot on the glyph rather than floating above it.
+                        .offset(x = (-4).dp, y = 4.dp)
+                        .size(10.dp)
+                        .clip(CircleShape)
+                        .background(colors.background)
+                        .padding(2.dp)
+                        .clip(CircleShape)
+                        .background(colors.accent)
+                )
+            }
+        }
     }
 }
 

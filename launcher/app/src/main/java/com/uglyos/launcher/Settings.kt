@@ -336,7 +336,7 @@ fun SettingsPage() {
             )
             SettingDivider()
             SettingRow(
-                label = "media controls",
+                label = "notification access",
                 value = if (hasMedia) "granted" else "tap to grant",
                 configured = hasMedia,
                 onClick = {
