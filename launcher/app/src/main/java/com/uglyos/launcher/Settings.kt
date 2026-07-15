@@ -277,6 +277,9 @@ fun SettingsPage() {
                 onChange = { QuickLaunchStore.setCols(context, it); dockCols = it },
             )
         }
+        SettingSection("widget") {
+            WidgetSettingsRow()
+        }
         SettingSection("permissions") {
             SettingRow(
                 label = "all-files access",
@@ -443,7 +446,7 @@ private fun SettingDivider() {
  * glance without shouting.
  */
 @Composable
-private fun SettingRow(label: String, value: String, configured: Boolean, onClick: () -> Unit) {
+internal fun SettingRow(label: String, value: String, configured: Boolean, onClick: () -> Unit) {
     val colors = UglyTheme.colors
     Row(
         modifier = Modifier

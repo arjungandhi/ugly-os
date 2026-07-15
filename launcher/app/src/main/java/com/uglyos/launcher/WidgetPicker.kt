@@ -25,20 +25,33 @@ data class WidgetChoice(
     val widgetLabel: String,
 )
 
+/** The installing app's own label, or its package name if that lookup fails. */
+private fun appLabelFor(context: Context, packageName: String): String {
+    val pm = context.packageManager
+    return runCatching { pm.getApplicationInfo(packageName, 0).loadLabel(pm).toString() }
+        .getOrDefault(packageName)
+}
+
+/**
+ * The best human label for [info]: its own widget label, else its app's.
+ * Touches [android.content.pm.PackageManager], so call this off the main
+ * thread — see [WidgetSettingsRow].
+ */
+fun widgetDisplayLabel(context: Context, info: AppWidgetProviderInfo): String {
+    val label = info.loadLabel(context.packageManager)
+    return label.takeIf { it.isNotBlank() } ?: appLabelFor(context, info.provider.packageName)
+}
+
 /**
  * Every widget any installed app offers, grouped by app then widget name.
  * Touches [android.content.pm.PackageManager], so call this off the main
  * thread — see [rememberWidgetPicker].
  */
 private fun installedWidgets(context: Context): List<WidgetChoice> {
-    val pm = context.packageManager
     return AppWidgetManager.getInstance(context).installedProviders
         .map { info ->
-            val appLabel = runCatching {
-                pm.getApplicationInfo(info.provider.packageName, 0).loadLabel(pm).toString()
-            }.getOrDefault(info.provider.packageName)
-            val widgetLabel = info.loadLabel(pm).takeIf { it.isNotBlank() } ?: appLabel
-            WidgetChoice(info = info, appLabel = appLabel, widgetLabel = widgetLabel)
+            val appLabel = appLabelFor(context, info.provider.packageName)
+            WidgetChoice(info = info, appLabel = appLabel, widgetLabel = widgetDisplayLabel(context, info))
         }
         .sortedWith(compareBy({ it.appLabel.lowercase() }, { it.widgetLabel.lowercase() }))
 }

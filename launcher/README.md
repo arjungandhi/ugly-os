@@ -63,9 +63,9 @@ APK output: `app/build/outputs/apk/debug/app-debug.apk`
 - `DateTimeWidget.kt` — home clock, calendar card, now-playing bar, next-event line
 - `NextEvent.kt` — reads the next calendar event via the calendar provider
 - `MediaControl.kt` — the notification listener: controls the active media session and tracks which apps have a live notification
-- `WidgetSlot.kt` — the hosted third-party widget on the home page: empty state, bound view, long-press manage sheet
-- `WidgetHost.kt` — the app's one `AppWidgetHost`, listened to from `MainActivity`
-- `WidgetPicker.kt` — the system widget-picker + configure-screen flow
+- `WidgetSlot.kt` — the hosted third-party widget: its home-page view, the settings row, long-press manage sheet
+- `WidgetHost.kt` — the app's one `AppWidgetHost`, listened to alongside the home page's lifecycle
+- `WidgetPicker.kt` — the in-app widget picker (enumerates installed providers, binds, runs a provider's configure screen)
 - `WidgetStore.kt` — the hosted widget's persisted id
 - `NotificationBadges.kt` — dock badge state (apps with a dismissable notification)
 - `Frecency.kt` — per-app launch history feeding search ranking
@@ -88,11 +88,17 @@ APK output: `app/build/outputs/apk/debug/app-debug.apk`
   has a live, dismissable notification (an unread text, say) — needs the same
   notification access as now-playing, and stays dark without it. Persists in
   `quick_launch` prefs.
-- **Home widget** — one real Android widget from any installed app, picked via
-  the system widget picker and hosted below the calendar card. Long-press to
-  swap it for another or remove it. Persists as an `AppWidgetHost` id in
-  `home_widget` prefs; falls back to an empty "add widget" row if its provider
-  gets uninstalled.
+- **Home widget** — one real Android widget from any installed app, hosted
+  below the calendar card. Picked from an in-app chooser (not the OS's
+  `ACTION_APPWIDGET_PICK`, which isn't reliably resolvable on a non-default
+  launcher) in settings → widget, not from the home page itself. Sized at the
+  provider's own declared footprint, not stretched — a wide widget (a
+  calendar, a weather strip) gets a full-width card matching the rest of the
+  home page; a small one (a toggle, a photo frame) keeps its natural size and
+  aspect ratio, centered, undecorated. Long-press the bound widget (on home or
+  in settings) to swap or remove it. Persists as an `AppWidgetHost` id in
+  `home_widget` prefs; falls back to the empty state if its provider gets
+  uninstalled.
 - **Search** — fans the query out to independent providers (apps, settings,
   contacts, web fallback) and ranks all hits on one scale; the top hit opens on
   Enter. Graded fuzzy scoring plus a frecency boost (`frecency` prefs, ~3-day
