@@ -336,7 +336,7 @@ private fun runSearch(context: Context, apps: List<AppInfo>, query: String): Lis
  * the query so it's empty next time.
  */
 @Composable
-fun SearchPage(isActive: Boolean) {
+fun SearchPage(isActive: Boolean, onResultSelected: () -> Unit = {}) {
     val context = LocalContext.current
     val colors = UglyTheme.colors
     val focusRequester = remember { FocusRequester() }
@@ -393,6 +393,7 @@ fun SearchPage(isActive: Boolean) {
                 results.firstOrNull()?.let {
                     keyboard?.hide()
                     it.onSelect(context)
+                    onResultSelected()
                 }
             },
             focusRequester = focusRequester,
@@ -410,6 +411,7 @@ fun SearchPage(isActive: Boolean) {
                         ResultRow(result.title, result.subtitle) {
                             keyboard?.hide()
                             result.onSelect(context)
+                            onResultSelected()
                         }
                     }
                 }
@@ -423,6 +425,7 @@ fun SearchPage(isActive: Boolean) {
                     ResultRow(topHit.title, topHit.subtitle ?: topHit.source.label, highlighted = true) {
                         keyboard?.hide()
                         topHit.onSelect(context)
+                        onResultSelected()
                     }
                 }
             }
@@ -438,6 +441,7 @@ fun SearchPage(isActive: Boolean) {
                         ResultRow(result.title, result.subtitle) {
                             keyboard?.hide()
                             result.onSelect(context)
+                            onResultSelected()
                         }
                     }
                 }

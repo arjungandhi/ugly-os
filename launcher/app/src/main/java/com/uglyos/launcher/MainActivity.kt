@@ -30,6 +30,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
 
 /**
  * A launchable app, as surfaced by PackageManager and overlaid with the user's
@@ -133,7 +134,10 @@ fun Home() {
                     modifier = Modifier.fillMaxSize()
                 ) { page ->
                     when (page) {
-                        SEARCH_PAGE -> SearchPage(isActive = pagerState.currentPage == SEARCH_PAGE)
+                        SEARCH_PAGE -> SearchPage(
+                            isActive = pagerState.currentPage == SEARCH_PAGE,
+                            onResultSelected = { scope.launch { pagerState.animateScrollToPage(HOME_PAGE) } },
+                        )
                         HOME_PAGE -> HomePage(
                             modifier = Modifier.drawerDrag(drawerOffset, heightPx, scope)
                         )
