@@ -63,6 +63,10 @@ APK output: `app/build/outputs/apk/debug/app-debug.apk`
 - `DateTimeWidget.kt` — home clock, calendar card, now-playing bar, next-event line
 - `NextEvent.kt` — reads the next calendar event via the calendar provider
 - `MediaControl.kt` — the notification listener: controls the active media session and tracks which apps have a live notification
+- `WidgetSlot.kt` — the hosted third-party widget on the home page: empty state, bound view, long-press manage sheet
+- `WidgetHost.kt` — the app's one `AppWidgetHost`, listened to from `MainActivity`
+- `WidgetPicker.kt` — the system widget-picker + configure-screen flow
+- `WidgetStore.kt` — the hosted widget's persisted id
 - `NotificationBadges.kt` — dock badge state (apps with a dismissable notification)
 - `Frecency.kt` — per-app launch history feeding search ranking
 - `AndroidManifest.xml` — registers as HOME, queries launchable apps
@@ -84,6 +88,11 @@ APK output: `app/build/outputs/apk/debug/app-debug.apk`
   has a live, dismissable notification (an unread text, say) — needs the same
   notification access as now-playing, and stays dark without it. Persists in
   `quick_launch` prefs.
+- **Home widget** — one real Android widget from any installed app, picked via
+  the system widget picker and hosted below the calendar card. Long-press to
+  swap it for another or remove it. Persists as an `AppWidgetHost` id in
+  `home_widget` prefs; falls back to an empty "add widget" row if its provider
+  gets uninstalled.
 - **Search** — fans the query out to independent providers (apps, settings,
   contacts, web fallback) and ranks all hits on one scale; the top hit opens on
   Enter. Graded fuzzy scoring plus a frecency boost (`frecency` prefs, ~3-day

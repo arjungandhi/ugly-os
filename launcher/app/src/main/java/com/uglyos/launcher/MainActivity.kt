@@ -13,6 +13,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -160,17 +161,24 @@ fun Home() {
     }
 }
 
-/** The center page: clock up top, quick-launch shortcuts along the bottom. */
+/**
+ * The center page: clock and the hosted widget up top, quick-launch
+ * shortcuts along the bottom.
+ */
 @Composable
 fun HomePage(modifier: Modifier = Modifier) {
     Box(modifier = modifier.fillMaxSize()) {
-        DateTimeWidget(
+        Column(
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp)
-                .padding(top = 48.dp)
-        )
+                .padding(top = 48.dp),
+            verticalArrangement = Arrangement.spacedBy(20.dp),
+        ) {
+            DateTimeWidget(modifier = Modifier.fillMaxWidth())
+            WidgetSlot()
+        }
         QuickLaunch(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
