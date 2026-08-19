@@ -88,7 +88,7 @@ import java.time.temporal.WeekFields
 import java.util.Locale
 
 /** A task paired with its line index in the file, so edits can target the right line. */
-private data class IndexedTask(val index: Int, val task: Task)
+internal data class IndexedTask(val index: Int, val task: Task)
 
 /** What the todo page has to show once it's tried to load the file. */
 private sealed interface TodoState {
@@ -206,7 +206,7 @@ fun TodoPage() {
     var editing by remember { mutableStateOf<TaskEdit?>(null) }
     var editingMode by remember { mutableStateOf<ModeEdit?>(null) }
     var showModeMenu by remember { mutableStateOf(false) }
-    var randomTask by remember { mutableStateOf<IndexedTask?>(null) }
+    var showRandom by remember { mutableStateOf(false) }
     val lifecycleOwner = LocalLifecycleOwner.current
 
     // Set and persist the selected mode. Callers pass an already-valid index.
@@ -219,15 +219,6 @@ fun TodoPage() {
     fun reloadModes() {
         modes = TodoModeStore.modes(context)
         select(selectedMode.coerceIn(0, maxOf(0, modes.size - 1)))
-    }
-
-    // Draw an open task at random from what the current mode shows. A reroll
-    // passes the task on screen so it lands elsewhere whenever there's a choice.
-    fun rollRandom(current: IndexedTask? = null) {
-        val loaded = state as? TodoState.Loaded ?: return
-        val pool = loaded.tasks.filter { mode.matches(it.task) && !it.task.completed }
-        val choices = if (current != null && pool.size > 1) pool.filter { it.index != current.index } else pool
-        randomTask = choices.randomOrNull()
     }
 
     // The file is loaded whole and unfiltered; switching modes just re-filters
@@ -269,57 +260,81 @@ fun TodoPage() {
         }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 20.dp)
-            .padding(top = 48.dp, bottom = 40.dp),
-    ) {
-        Text(
-            text = "todo",
-            color = colors.foreground,
-            fontSize = 28.sp,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = 2.sp,
-            fontFamily = FontFamily.Monospace,
-            // A hidden affordance: tapping the title draws a random open task.
+    // The page and the loot pull share one Box: the pull is an in-activity
+    // overlay (not a Dialog), so it covers the truly full screen when it's up.
+    Box(Modifier.fillMaxSize()) {
+        Column(
             modifier = Modifier
-                .clickable(onClick = { rollRandom() })
-                .padding(bottom = 20.dp),
-        )
-        when (val s = state) {
-            TodoState.NoDir -> Hint("set the todo dir in settings", highlight = "settings")
-            TodoState.NoAccess -> Hint("grant all-files access in settings", highlight = "settings")
-            TodoState.NotFound -> Hint("no todo.txt found in todo dir", highlight = "todo dir")
-            is TodoState.Loaded -> {
-                val visible = s.tasks.filter { mode.matches(it.task) }
-                if (visible.isEmpty()) {
-                    Hint("no tasks")
-                    Spacer(Modifier.weight(1f))
-                } else {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxWidth().weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        items(visible) { item ->
-                            TaskRow(
-                                task = item.task,
-                                hiddenContext = hiddenContext,
-                                hiddenProject = hiddenProject,
-                                onComplete = { mutate { completeTask(context, item.index) } },
-                                onEdit = { editing = TaskEdit(item.index, item.task) },
-                            )
+                .fillMaxSize()
+                .padding(horizontal = 20.dp)
+                .padding(top = 48.dp, bottom = 40.dp),
+        ) {
+            Text(
+                text = "todo",
+                color = colors.foreground,
+                fontSize = 28.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 2.sp,
+                fontFamily = FontFamily.Monospace,
+                // A hidden affordance: tapping the title rolls a random open task.
+                modifier = Modifier
+                    .clickable(onClick = { showRandom = true })
+                    .padding(bottom = 20.dp),
+            )
+            when (val s = state) {
+                TodoState.NoDir -> Hint("set the todo dir in settings", highlight = "settings")
+                TodoState.NoAccess -> Hint("grant all-files access in settings", highlight = "settings")
+                TodoState.NotFound -> Hint("no todo.txt found in todo dir", highlight = "todo dir")
+                is TodoState.Loaded -> {
+                    val visible = s.tasks.filter { mode.matches(it.task) }
+                    if (visible.isEmpty()) {
+                        Hint("no tasks")
+                        Spacer(Modifier.weight(1f))
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxWidth().weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            items(visible) { item ->
+                                TaskRow(
+                                    task = item.task,
+                                    hiddenContext = hiddenContext,
+                                    hiddenProject = hiddenProject,
+                                    onComplete = { mutate { completeTask(context, item.index) } },
+                                    onEdit = { editing = TaskEdit(item.index, item.task) },
+                                )
+                            }
                         }
                     }
+                    // The footer — current mode on the left, "add task" on the right —
+                    // is pinned to the bottom, in thumb reach, split from the scrolling
+                    // list by a hairline.
+                    Hairline()
+                    FooterBar(
+                        mode = mode.label,
+                        onOpenModes = { showModeMenu = true },
+                        onAddTask = { editing = TaskEdit(index = null, task = Task()) },
+                    )
                 }
-                // The footer — current mode on the left, "add task" on the right —
-                // is pinned to the bottom, in thumb reach, split from the scrolling
-                // list by a hairline.
-                Hairline()
-                FooterBar(
-                    mode = mode.label,
-                    onOpenModes = { showModeMenu = true },
-                    onAddTask = { editing = TaskEdit(index = null, task = Task()) },
+            }
+        }
+
+        if (showRandom) {
+            val pool = (state as? TodoState.Loaded)?.tasks
+                ?.filter { mode.matches(it.task) && !it.task.completed }
+                .orEmpty()
+            if (pool.isEmpty()) {
+                showRandom = false
+            } else {
+                RandomTaskModal(
+                    pool = pool,
+                    hiddenContext = hiddenContext,
+                    hiddenProject = hiddenProject,
+                    onDismiss = { showRandom = false },
+                    onComplete = { item ->
+                        mutate { completeTask(context, item.index) }
+                        showRandom = false
+                    },
                 )
             }
         }
@@ -349,18 +364,6 @@ fun TodoPage() {
             onDelete = edit.index?.let { index ->
                 { mutate { deleteTask(context, index) }; editing = null }
             },
-        )
-    }
-
-    randomTask?.let { item ->
-        RandomTaskSheet(
-            item = item,
-            hiddenContext = hiddenContext,
-            hiddenProject = hiddenProject,
-            onDismiss = { randomTask = null },
-            onComplete = { mutate { completeTask(context, item.index) }; randomTask = null },
-            onEdit = { randomTask = null; editing = TaskEdit(item.index, item.task) },
-            onReroll = { rollRandom(current = item) },
         )
     }
 
@@ -585,62 +588,6 @@ private fun ModeMenuRow(label: String, active: Boolean, onSelect: () -> Unit, on
 }
 
 /**
- * The random-task sheet: one task drawn at random from the tasks the current mode
- * shows, presented alone so it reads as "do this one". The row keeps its list
- * affordances — tap the dot to complete it, tap the text to edit — and "reroll"
- * draws again when this one doesn't suit.
- */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun RandomTaskSheet(
-    item: IndexedTask,
-    hiddenContext: String?,
-    hiddenProject: String?,
-    onDismiss: () -> Unit,
-    onComplete: () -> Unit,
-    onEdit: () -> Unit,
-    onReroll: () -> Unit,
-) {
-    val colors = UglyTheme.colors
-    val sheetState = rememberModalBottomSheetState()
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        containerColor = colors.surface,
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 24.dp)
-                .padding(bottom = 32.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp),
-        ) {
-            Text(
-                text = "random task",
-                color = colors.mutedForeground,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 2.sp,
-                fontFamily = FontFamily.Monospace,
-            )
-            TaskRow(
-                task = item.task,
-                hiddenContext = hiddenContext,
-                hiddenProject = hiddenProject,
-                onComplete = onComplete,
-                onEdit = onEdit,
-            )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End,
-            ) {
-                SaveAction(enabled = true, onClick = onReroll, label = "reroll")
-            }
-        }
-    }
-}
-
-/**
  * One task line: a tappable completion dot in the gutter, the description, and a
  * due badge on the right. Aurora carries the state — a semantic priority badge
  * folded into the text (`(A)` error, `(B)` warning), quiet `mutedForeground`
@@ -682,7 +629,7 @@ private fun TaskRow(
  * Sized to [DOT_GUTTER] so it aligns to the first text line in a top-aligned row.
  */
 @Composable
-private fun CompletionDot(completed: Boolean, onClick: () -> Unit) {
+internal fun CompletionDot(completed: Boolean, onClick: () -> Unit) {
     val colors = UglyTheme.colors
     Box(
         modifier = Modifier
@@ -701,7 +648,7 @@ private fun CompletionDot(completed: Boolean, onClick: () -> Unit) {
 
 /** The one word of urgency for a due date, or nothing. Suppressed on done tasks. */
 @Composable
-private fun DueBadge(task: Task) {
+internal fun DueBadge(task: Task) {
     if (task.completed) return
     val info = dueInfo(task.due) ?: return
     Text(
@@ -750,7 +697,7 @@ private fun priorityColor(priority: Char, colors: com.uglyos.common.theme.ThemeC
  * so they read as quiet tags, not part of the sentence. User casing is untouched.
  */
 @Composable
-private fun taskAnnotated(task: Task, hiddenContext: String?, hiddenProject: String?): AnnotatedString {
+internal fun taskAnnotated(task: Task, hiddenContext: String?, hiddenProject: String?): AnnotatedString {
     val colors = UglyTheme.colors
     val done = task.completed
     val base = if (done) colors.mutedForeground else colors.foreground
