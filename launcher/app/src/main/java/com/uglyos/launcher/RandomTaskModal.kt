@@ -83,20 +83,17 @@ private sealed interface Pull {
 
 /** Rare: a 15-minute breather. */
 private val RARE_PRIZES = listOf(
-    "go stare out a window for 15",
-    "walk around the block for no reason",
-    "make tea like it's a ceremony",
-    "lie on the floor for a bit",
-    "15 minutes of professional loitering",
+    "go stare out a window",
+    "coffee",
+    "lie on the floor",
+    "educate the rat",
 )
 
 /** Epic: an hour-scale escape. */
 private val EPIC_PRIZES = listOf(
-    "nap like it's your job",
-    "an hour of doing whatever, badly",
-    "become one with the couch",
-    "long lunch. suspiciously long",
-    "go get a snack you don't need",
+    "nap time",
+    "do some scope creep",
+    "book book book",
 )
 
 /** Legendary: the day is over. */
@@ -104,7 +101,7 @@ private val LEGENDARY_PRIZES = listOf(
     "no more today",
     "the list will survive without you",
     "tasks are cancelled. all of them",
-    "go home (you are home)",
+    "give up",
 )
 
 private fun PrizeTier.prize(): Pull.Prize = Pull.Prize(
