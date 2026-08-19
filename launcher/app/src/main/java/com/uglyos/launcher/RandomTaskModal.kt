@@ -70,7 +70,7 @@ private const val TEASE_ODDS = 0.25f
  * work: a 15-minute breather is merely rare; the big outs stay genuinely so. */
 private const val LEGENDARY_ODDS = 0.001f
 private const val EPIC_ODDS = 0.01f
-private const val RARE_ODDS = 0.05f
+private const val RARE_ODDS = 0.02f
 
 /** How lucky a prize pull is; each tier is a bigger escape from the list. */
 private enum class PrizeTier { RARE, EPIC, LEGENDARY }
@@ -131,7 +131,7 @@ private fun rarityOf(pull: Pull, colors: ThemeColors): Rarity = when (pull) {
 }
 
 /**
- * Land a pull: a 0.1% legendary, 1% epic, or 5% rare prize, otherwise a task
+ * Land a pull: a 0.1% legendary, 1% epic, or 2% rare prize, otherwise a task
  * from [pool] — avoiding [exclude] (the last one shown) when there's a choice.
  */
 private fun rollPull(pool: List<IndexedTask>, exclude: IndexedTask?): Pull {
