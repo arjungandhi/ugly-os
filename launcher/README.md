@@ -109,8 +109,8 @@ APK output: `app/build/outputs/apk/debug/app-debug.apk`
   hides its own tag per row and auto-appends it to tasks added there. Add / edit /
   complete tasks (done archived to `done.txt`); tapping the "todo" title is a
   hidden loot pull (`RandomTaskModal.kt`) that lands one open task from the mode
-  — or, very rarely, a "take a nap" / "no more today" jackpot; live-reload via
-  `FileObserver`.
+  — or, with luck, a break prize: a rare 15 minutes, an epic hour, or the
+  legendary end of the day; live-reload via `FileObserver`.
   Modes persist in `todo_modes` prefs.
 - **Notes** — a page over `notes_dir`, one `<title>.md` per note, newest-modified
   first; a search field narrows by title or body. Stays light on large dirs:

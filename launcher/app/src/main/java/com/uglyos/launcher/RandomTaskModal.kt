@@ -63,41 +63,86 @@ import kotlin.random.Random
 /** Flicker ticks in one pull before the wheel lands. */
 private const val FLICKER_STEPS = 14
 
-/** Odds of the work-avoidance jackpots, per pull. Better rarity means less
- * work, so the outs are kept genuinely rare. */
-private const val NO_MORE_TODAY_ODDS = 0.001f
-private const val NAP_ODDS = 0.01f
+/** Chance a flicker tick teases a prize instead of a task. */
+private const val TEASE_ODDS = 0.25f
 
-/** What a pull can land on: a task to do, or one of the lucky outs. */
+/** Odds of the work-avoidance prizes, per pull. Better rarity means less
+ * work: a 15-minute breather is merely rare; the big outs stay genuinely so. */
+private const val LEGENDARY_ODDS = 0.001f
+private const val EPIC_ODDS = 0.01f
+private const val RARE_ODDS = 0.05f
+
+/** How lucky a prize pull is; each tier is a bigger escape from the list. */
+private enum class PrizeTier { RARE, EPIC, LEGENDARY }
+
+/** What a pull can land on: a task to do, or a prize instead of one. */
 private sealed interface Pull {
     data class Work(val item: IndexedTask) : Pull
-    object Nap : Pull
-    object NoMoreToday : Pull
+    data class Prize(val tier: PrizeTier, val text: String) : Pull
 }
+
+/** Rare: a 15-minute breather. */
+private val RARE_PRIZES = listOf(
+    "go stare out a window for 15",
+    "walk around the block for no reason",
+    "make tea like it's a ceremony",
+    "lie on the floor for a bit",
+    "15 minutes of professional loitering",
+)
+
+/** Epic: an hour-scale escape. */
+private val EPIC_PRIZES = listOf(
+    "nap like it's your job",
+    "an hour of doing whatever, badly",
+    "become one with the couch",
+    "long lunch. suspiciously long",
+    "go get a snack you don't need",
+)
+
+/** Legendary: the day is over. */
+private val LEGENDARY_PRIZES = listOf(
+    "no more today",
+    "the list will survive without you",
+    "tasks are cancelled. all of them",
+    "go home (you are home)",
+)
+
+private fun PrizeTier.prize(): Pull.Prize = Pull.Prize(
+    tier = this,
+    text = when (this) {
+        PrizeTier.RARE -> RARE_PRIZES
+        PrizeTier.EPIC -> EPIC_PRIZES
+        PrizeTier.LEGENDARY -> LEGENDARY_PRIZES
+    }.random(),
+)
 
 /** One confetti dot: a direction, how far it flies (as a fraction of the
  * screen's short side), its size in dp, and which tint slot it draws from. */
 private class Spark(val angle: Float, val reach: Float, val size: Float, val tint: Int)
 
 /** The stamp a pull lands with. Rarity grades luck, not the task: a plain task
- * is common; the outs are the prizes, with bursts to match. */
+ * is common; the prizes go up from there, with bursts to match. */
 private data class Rarity(val label: String, val color: Color, val sparkCount: Int)
 
 private fun rarityOf(pull: Pull, colors: ThemeColors): Rarity = when (pull) {
     is Pull.Work -> Rarity("common", colors.mutedForeground, 26)
-    Pull.Nap -> Rarity("epic", colors.warning, 44)
-    Pull.NoMoreToday -> Rarity("legendary", colors.error, 70)
+    is Pull.Prize -> when (pull.tier) {
+        PrizeTier.RARE -> Rarity("rare", colors.accentMuted, 34)
+        PrizeTier.EPIC -> Rarity("epic", colors.warning, 44)
+        PrizeTier.LEGENDARY -> Rarity("legendary", colors.error, 70)
+    }
 }
 
 /**
- * Land a pull: a 0.1% "no more today", a 1% "take a nap", otherwise a task from
- * [pool] — avoiding [exclude] (the last one shown) when there's a choice.
+ * Land a pull: a 0.1% legendary, 1% epic, or 5% rare prize, otherwise a task
+ * from [pool] — avoiding [exclude] (the last one shown) when there's a choice.
  */
 private fun rollPull(pool: List<IndexedTask>, exclude: IndexedTask?): Pull {
     val r = Random.nextFloat()
     return when {
-        r < NO_MORE_TODAY_ODDS -> Pull.NoMoreToday
-        r < NO_MORE_TODAY_ODDS + NAP_ODDS -> Pull.Nap
+        r < LEGENDARY_ODDS -> PrizeTier.LEGENDARY.prize()
+        r < LEGENDARY_ODDS + EPIC_ODDS -> PrizeTier.EPIC.prize()
+        r < LEGENDARY_ODDS + EPIC_ODDS + RARE_ODDS -> PrizeTier.RARE.prize()
         else -> {
             val choices = if (exclude != null && pool.size > 1) pool.filter { it.index != exclude.index } else pool
             Pull.Work(choices.random())
@@ -110,10 +155,11 @@ private fun rollPull(pool: List<IndexedTask>, exclude: IndexedTask?): Pull {
  * flickers through the mode's open [pool] with haptic ticks winding down like a
  * prize wheel, then slams the result home — spring overshoot, a slow ray burst,
  * dot confetti, and a rarity stamp. Rarity is a work-avoidance lottery, not the
- * task: a task is common, the rare "take a nap" is epic, the rarer "no more
- * today" is legendary, each with a bigger burst. Deliberately the loudest
- * moment in the app — it's a reward, not chrome — but built from the house
- * parts: monospace, lowercase, aurora colors, and dots. Tap a task card's dot
+ * task: a task is common; prizes are a rare 15-minute breather, an epic hour
+ * off, or the legendary end of the day — each with a bigger burst. Deliberately
+ * the loudest moment in the app — it's a reward, not chrome — but built from
+ * the house parts: monospace, lowercase, aurora colors, and dots. Tap a task
+ * card's dot
  * to complete it, "reroll" to pull again (rerolling away a jackpot is on you),
  * or dismiss (tap outside, back) and go do it.
  *
@@ -143,14 +189,15 @@ internal fun RandomTaskModal(
     var origin by remember { mutableStateOf(Offset.Unspecified) }
     var overlayTopLeft by remember { mutableStateOf(Offset.Zero) }
 
-    // One pull: flicker through the pool with ticks that slow like a wheel
-    // losing steam, then land. Only tasks flicker by — a jackpot never teases.
+    // One pull: flicker with ticks that slow like a wheel losing steam, then
+    // land. Prize flashes mid-flicker are pure teases; rollPull decides.
     LaunchedEffect(roll) {
         revealed = false
         burst.snapTo(0f)
         val previous = (shown as? Pull.Work)?.item
         repeat(FLICKER_STEPS) { i ->
-            shown = Pull.Work(pool.random())
+            shown = if (Random.nextFloat() < TEASE_ODDS) PrizeTier.entries.random().prize()
+            else Pull.Work(pool.random())
             jitter = (Random.nextFloat() - 0.5f) * 12f
             haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
             val t = i / (FLICKER_STEPS - 1f)
@@ -262,8 +309,8 @@ internal fun RandomTaskModal(
                         )
                         DueBadge(p.item.task)
                     }
-                    else -> Text(
-                        text = if (p is Pull.Nap) "take a nap" else "no more today",
+                    is Pull.Prize -> Text(
+                        text = p.text,
                         color = rarity.color,
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
@@ -291,10 +338,13 @@ internal fun RandomTaskModal(
                         .padding(horizontal = 8.dp, vertical = 12.dp),
                 )
                 Text(
-                    text = when (shown) {
+                    text = when (val p = shown) {
                         is Pull.Work -> "let's go"
-                        Pull.Nap -> "good night"
-                        Pull.NoMoreToday -> "freedom"
+                        is Pull.Prize -> when (p.tier) {
+                            PrizeTier.RARE -> "brb"
+                            PrizeTier.EPIC -> "see ya"
+                            PrizeTier.LEGENDARY -> "freedom"
+                        }
                     },
                     color = colors.accent,
                     fontSize = 16.sp,
