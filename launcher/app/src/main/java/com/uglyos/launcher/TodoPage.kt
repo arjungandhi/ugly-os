@@ -188,7 +188,7 @@ private data class ModeEdit(val index: Int?, val mode: TodoMode)
  * Syncthing) appear live; it also reloads on resume. Switching modes just re-filters
  * the loaded list in memory, and the choice persists across restarts. Tap a task's
  * dot to complete it (archived to done.txt), tap its text to edit or delete it, use
- * "add task" to append.
+ * "add task" to append. Tapping the "todo" title draws one open task at random.
  */
 @Composable
 fun TodoPage() {
@@ -206,6 +206,7 @@ fun TodoPage() {
     var editing by remember { mutableStateOf<TaskEdit?>(null) }
     var editingMode by remember { mutableStateOf<ModeEdit?>(null) }
     var showModeMenu by remember { mutableStateOf(false) }
+    var randomTask by remember { mutableStateOf<IndexedTask?>(null) }
     val lifecycleOwner = LocalLifecycleOwner.current
 
     // Set and persist the selected mode. Callers pass an already-valid index.
@@ -218,6 +219,15 @@ fun TodoPage() {
     fun reloadModes() {
         modes = TodoModeStore.modes(context)
         select(selectedMode.coerceIn(0, maxOf(0, modes.size - 1)))
+    }
+
+    // Draw an open task at random from what the current mode shows. A reroll
+    // passes the task on screen so it lands elsewhere whenever there's a choice.
+    fun rollRandom(current: IndexedTask? = null) {
+        val loaded = state as? TodoState.Loaded ?: return
+        val pool = loaded.tasks.filter { mode.matches(it.task) && !it.task.completed }
+        val choices = if (current != null && pool.size > 1) pool.filter { it.index != current.index } else pool
+        randomTask = choices.randomOrNull()
     }
 
     // The file is loaded whole and unfiltered; switching modes just re-filters
@@ -272,7 +282,10 @@ fun TodoPage() {
             fontWeight = FontWeight.Bold,
             letterSpacing = 2.sp,
             fontFamily = FontFamily.Monospace,
-            modifier = Modifier.padding(bottom = 20.dp),
+            // A hidden affordance: tapping the title draws a random open task.
+            modifier = Modifier
+                .clickable(onClick = { rollRandom() })
+                .padding(bottom = 20.dp),
         )
         when (val s = state) {
             TodoState.NoDir -> Hint("set the todo dir in settings", highlight = "settings")
@@ -336,6 +349,18 @@ fun TodoPage() {
             onDelete = edit.index?.let { index ->
                 { mutate { deleteTask(context, index) }; editing = null }
             },
+        )
+    }
+
+    randomTask?.let { item ->
+        RandomTaskSheet(
+            item = item,
+            hiddenContext = hiddenContext,
+            hiddenProject = hiddenProject,
+            onDismiss = { randomTask = null },
+            onComplete = { mutate { completeTask(context, item.index) }; randomTask = null },
+            onEdit = { randomTask = null; editing = TaskEdit(item.index, item.task) },
+            onReroll = { rollRandom(current = item) },
         )
     }
 
@@ -556,6 +581,62 @@ private fun ModeMenuRow(label: String, active: Boolean, onSelect: () -> Unit, on
             fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
             fontFamily = FontFamily.Monospace,
         )
+    }
+}
+
+/**
+ * The random-task sheet: one task drawn at random from the tasks the current mode
+ * shows, presented alone so it reads as "do this one". The row keeps its list
+ * affordances — tap the dot to complete it, tap the text to edit — and "reroll"
+ * draws again when this one doesn't suit.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun RandomTaskSheet(
+    item: IndexedTask,
+    hiddenContext: String?,
+    hiddenProject: String?,
+    onDismiss: () -> Unit,
+    onComplete: () -> Unit,
+    onEdit: () -> Unit,
+    onReroll: () -> Unit,
+) {
+    val colors = UglyTheme.colors
+    val sheetState = rememberModalBottomSheetState()
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = colors.surface,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp)
+                .padding(bottom = 32.dp),
+            verticalArrangement = Arrangement.spacedBy(20.dp),
+        ) {
+            Text(
+                text = "random task",
+                color = colors.mutedForeground,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 2.sp,
+                fontFamily = FontFamily.Monospace,
+            )
+            TaskRow(
+                task = item.task,
+                hiddenContext = hiddenContext,
+                hiddenProject = hiddenProject,
+                onComplete = onComplete,
+                onEdit = onEdit,
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+            ) {
+                SaveAction(enabled = true, onClick = onReroll, label = "reroll")
+            }
+        }
     }
 }
 

@@ -107,7 +107,8 @@ APK output: `app/build/outputs/apk/debug/app-debug.apk`
   tap to switch, long-press to edit or delete, "add mode" to create one. Modes
   filter on a `+project`, an `@context`, or both — or the inverse. A scoped mode
   hides its own tag per row and auto-appends it to tasks added there. Add / edit /
-  complete tasks (done archived to `done.txt`); live-reload via `FileObserver`.
+  complete tasks (done archived to `done.txt`); tapping the "todo" title draws
+  one open task from the mode at random; live-reload via `FileObserver`.
   Modes persist in `todo_modes` prefs.
 - **Notes** — a page over `notes_dir`, one `<title>.md` per note, newest-modified
   first; a search field narrows by title or body. Stays light on large dirs:
