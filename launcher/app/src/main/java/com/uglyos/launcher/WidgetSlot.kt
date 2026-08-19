@@ -277,7 +277,7 @@ private fun BoundWidgetView(
         }
     }
 
-    Box(modifier = modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+    Box(modifier = modifier.fillMaxWidth(), contentAlignment = Alignment.CenterStart) {
         // Rekeyed on widgetId so swapping widgets tears down the old host
         // view and creates a fresh one, rather than reusing a stale binding.
         key(widgetId) {
