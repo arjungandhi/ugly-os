@@ -49,7 +49,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.foundation.layout.size
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.uglyos.common.theme.ThemeColors
@@ -306,15 +306,23 @@ internal fun RandomTaskModal(
                         )
                         DueBadge(p.item.task)
                     }
-                    is Pull.Prize -> Text(
-                        text = p.text,
-                        color = rarity.color,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
+                    // Same geometry as a task row (empty dot gutter, left
+                    // text) so the flicker doesn't jump between layouts.
+                    is Pull.Prize -> Row(
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.Top,
+                    ) {
+                        Box(Modifier.size(DOT_GUTTER))
+                        Text(
+                            text = p.text,
+                            color = rarity.color,
+                            fontSize = 16.sp,
+                            lineHeight = 22.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
                 }
             }
             Row(
