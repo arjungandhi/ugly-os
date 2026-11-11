@@ -12,13 +12,33 @@ android {
         applicationId = "com.uglyos.launcher"
         minSdk = 30
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1"
+        // CI passes -PuglyosVersionName=X.Y.Z -PuglyosVersionCode=N; local builds get defaults.
+        versionCode = (findProperty("uglyosVersionCode") as String?)?.toIntOrNull() ?: 1
+        versionName = (findProperty("uglyosVersionName") as String?) ?: "0.1"
+    }
+
+    // Release signing comes from env vars (CI). Without UGLYOS_KEYSTORE_FILE we fall back to debug signing so
+    // `assembleRelease` still produces an installable APK locally.
+    val releaseKeystore = System.getenv("UGLYOS_KEYSTORE_FILE")?.takeIf { it.isNotBlank() }
+    signingConfigs {
+        if (releaseKeystore != null) {
+            create("release") {
+                storeFile = file(releaseKeystore)
+                storePassword = System.getenv("UGLYOS_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("UGLYOS_KEY_ALIAS")
+                keyPassword = System.getenv("UGLYOS_KEY_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfig = if (releaseKeystore != null) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
         }
     }
 
