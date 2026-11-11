@@ -33,6 +33,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -54,6 +55,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.runtime.LaunchedEffect
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.uglyos.common.theme.UglyTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -370,6 +374,17 @@ fun SearchPage(isActive: Boolean, onResultSelected: () -> Unit = {}) {
     // Enumerating apps hits PackageManager, so do it once off the main thread.
     // Re-run after the manage sheet closes so renames/tags show up right away.
     LaunchedEffect(reloadKey) { apps = withContext(Dispatchers.IO) { loadApps(context) } }
+
+    // An uninstall is confirmed on a system screen, so refresh the list when we
+    // come back to the foreground.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) reloadKey++
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     // Long-press on an app result opens the manage sheet for that app.
     val manage: (SearchResult) -> Unit = { result ->
