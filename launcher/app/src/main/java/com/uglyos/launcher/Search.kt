@@ -78,6 +78,7 @@ enum class ResultSource(val label: String) {
     SETTING("settings"),
     CONTACT("contacts"),
     WEB("web"),
+    UPDATE("update"),
 }
 
 /** One ranked hit. [score] orders results within a source; [onSelect] acts on it. */
@@ -276,6 +277,19 @@ private fun webFallback(query: String): List<SearchResult> = listOf(
     },
 )
 
+/**
+ * The "update launcher" row, present only when the cached release check found a
+ * newer build. Scored 1 so it never beats the web fallbacks as the top hit, but
+ * a query that actually matches it ("update", "launcher") lifts it like any hit.
+ */
+private fun updateResult(context: Context, query: String? = null): SearchResult? {
+    val release = Updater.pending(context) ?: return null
+    val score = if (query == null) 0 else matchScore("update launcher", query).coerceAtLeast(1)
+    return SearchResult("update launcher", release.tag, ResultSource.UPDATE, score) { ctx ->
+        Updater.install(ctx, release)
+    }
+}
+
 /** Resolve a contact lookup key back to its current display name, or null if gone. */
 private fun resolveContactName(context: Context, lookup: String): String? {
     if (!hasContactsPermission(context)) return null
@@ -292,10 +306,11 @@ private fun resolveContactName(context: Context, lookup: String): String? {
  * longer resolve (uninstalled app, deleted contact) drop out silently.
  */
 private fun recentResults(context: Context, apps: List<AppInfo>, limit: Int = 6): List<SearchResult> {
+    val update = listOfNotNull(updateResult(context))
     val frecency = Frecency.scores(context)
-    if (frecency.isEmpty()) return emptyList()
+    if (frecency.isEmpty()) return update
     val byPackage = apps.associateBy { it.packageName }
-    return frecency.entries
+    return update + frecency.entries
         .sortedByDescending { it.value }
         .mapNotNull { (key, _) ->
             when {
@@ -347,7 +362,8 @@ private fun runSearch(context: Context, apps: List<AppInfo>, query: String): Lis
     return (searchApps(apps, query, frecency) +
         searchSettings(query, frecency) +
         searchContacts(context, query, frecency) +
-        webFallback(query))
+        webFallback(query) +
+        listOfNotNull(updateResult(context, query)))
         .sortedWith(
             compareByDescending<SearchResult> { it.score }
                 .thenBy { it.title.length }
@@ -374,6 +390,7 @@ fun SearchPage(isActive: Boolean, onResultSelected: () -> Unit = {}) {
     var hasContacts by remember { mutableStateOf(hasContactsPermission(context)) }
     var managing by remember { mutableStateOf<AppInfo?>(null) }
     var reloadKey by remember { mutableStateOf(0) }
+    var updateKey by remember { mutableStateOf(0) }
 
     val contactsPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -410,6 +427,8 @@ fun SearchPage(isActive: Boolean, onResultSelected: () -> Unit = {}) {
             if (!hasContacts) contactsPermission.launch(Manifest.permission.READ_CONTACTS)
             delay(100)
             runCatching { focusRequester.requestFocus() }
+            // Throttled GitHub release check; a fresh result re-runs the search.
+            if (withContext(Dispatchers.IO) { Updater.check(context) }) updateKey++
         } else {
             query = ""
             focusManager.clearFocus()
@@ -417,7 +436,7 @@ fun SearchPage(isActive: Boolean, onResultSelected: () -> Unit = {}) {
     }
 
     // Re-run the search when the query (or contacts access, or app list) changes.
-    LaunchedEffect(query, hasContacts, apps) {
+    LaunchedEffect(query, hasContacts, apps, updateKey) {
         val q = query.trim()
         if (q.isEmpty()) {
             results = withContext(Dispatchers.IO) { recentResults(context, apps) }

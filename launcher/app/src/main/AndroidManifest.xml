@@ -14,6 +14,12 @@
     <!-- Home screen shows your next event; requested at runtime. -->
     <uses-permission android:name="android.permission.READ_CALENDAR" />
 
+    <!-- Self-update: checks GitHub releases and downloads the new APK. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- Self-update: lets us hand the downloaded APK to the system installer. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
     <!-- Required (targetSdk >= 28) for ACTION_DELETE uninstall prompts to work. -->
     <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
 
