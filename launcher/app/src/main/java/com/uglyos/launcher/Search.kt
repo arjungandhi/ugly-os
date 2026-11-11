@@ -12,7 +12,8 @@ import android.provider.Settings as AndroidSettings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,6 +33,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -53,6 +55,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.runtime.LaunchedEffect
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.uglyos.common.theme.UglyTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -81,6 +86,8 @@ data class SearchResult(
     val subtitle: String?,
     val source: ResultSource,
     val score: Int,
+    /** Set for app results so a long-press can open the manage sheet. */
+    val packageName: String? = null,
     val onSelect: (Context) -> Unit,
 )
 
@@ -167,9 +174,14 @@ private fun searchApps(
         if (score == 0) null
         else {
             val subtitle = if (tagScore > labelScore && bestTag != null) "#$bestTag" else null
-            SearchResult(app.label, subtitle, ResultSource.APP, score + Frecency.boost(frecency["app:${app.packageName}"])) {
-                launchApp(it, app.packageName)
-            }
+            SearchResult(
+                app.label,
+                subtitle,
+                ResultSource.APP,
+                score + Frecency.boost(frecency["app:${app.packageName}"]),
+                onSelect = { launchApp(it, app.packageName) },
+                packageName = app.packageName,
+            )
         }
     }
 
@@ -289,9 +301,14 @@ private fun recentResults(context: Context, apps: List<AppInfo>, limit: Int = 6)
             when {
                 key.startsWith("app:") -> {
                     val app = byPackage[key.removePrefix("app:")] ?: return@mapNotNull null
-                    SearchResult(app.label, ResultSource.APP.label, ResultSource.APP, 0) {
-                        launchApp(it, app.packageName)
-                    }
+                    SearchResult(
+                        app.label,
+                        ResultSource.APP.label,
+                        ResultSource.APP,
+                        0,
+                        onSelect = { launchApp(it, app.packageName) },
+                        packageName = app.packageName,
+                    )
                 }
                 key.startsWith("setting:") -> {
                     val action = key.removePrefix("setting:")
@@ -355,13 +372,36 @@ fun SearchPage(isActive: Boolean, onResultSelected: () -> Unit = {}) {
     var apps by remember { mutableStateOf<List<AppInfo>>(emptyList()) }
     var results by remember { mutableStateOf<List<SearchResult>>(emptyList()) }
     var hasContacts by remember { mutableStateOf(hasContactsPermission(context)) }
+    var managing by remember { mutableStateOf<AppInfo?>(null) }
+    var reloadKey by remember { mutableStateOf(0) }
 
     val contactsPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted -> hasContacts = granted }
 
     // Enumerating apps hits PackageManager, so do it once off the main thread.
-    LaunchedEffect(Unit) { apps = withContext(Dispatchers.IO) { loadApps(context) } }
+    // Re-run after the manage sheet closes so renames/tags show up right away.
+    LaunchedEffect(reloadKey) { apps = withContext(Dispatchers.IO) { loadApps(context) } }
+
+    // An uninstall is confirmed on a system screen, so refresh the list when we
+    // come back to the foreground.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) reloadKey++
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    // Long-press on an app result opens the manage sheet for that app.
+    val manage: (SearchResult) -> Unit = { result ->
+        val app = apps.firstOrNull { it.packageName == result.packageName }
+        if (app != null) {
+            keyboard?.hide()
+            managing = app
+        }
+    }
 
     // Focus + keyboard follow whether the page is the one on screen. Also ask
     // for contacts access the first time the user actually opens search.
@@ -416,7 +456,11 @@ fun SearchPage(isActive: Boolean, onResultSelected: () -> Unit = {}) {
                 } else {
                     item { SectionHeader("recent") }
                     items(results) { result ->
-                        ResultRow(result.title, result.subtitle) {
+                        ResultRow(
+                            result.title,
+                            result.subtitle,
+                            onLongClick = result.packageName?.let { { manage(result) } },
+                        ) {
                             keyboard?.hide()
                             result.onSelect(context)
                             onResultSelected()
@@ -430,7 +474,12 @@ fun SearchPage(isActive: Boolean, onResultSelected: () -> Unit = {}) {
                 item { SectionHeader("top hit") }
                 item {
                     // Pulled out of its group, so name its source to keep context.
-                    ResultRow(topHit.title, topHit.subtitle ?: topHit.source.label, highlighted = true) {
+                    ResultRow(
+                        topHit.title,
+                        topHit.subtitle ?: topHit.source.label,
+                        highlighted = true,
+                        onLongClick = topHit.packageName?.let { { manage(topHit) } },
+                    ) {
                         keyboard?.hide()
                         topHit.onSelect(context)
                         onResultSelected()
@@ -446,7 +495,11 @@ fun SearchPage(isActive: Boolean, onResultSelected: () -> Unit = {}) {
                 .forEach { (source, group) ->
                     item { SectionHeader(source.label) }
                     items(group) { result ->
-                        ResultRow(result.title, result.subtitle) {
+                        ResultRow(
+                            result.title,
+                            result.subtitle,
+                            onLongClick = result.packageName?.let { { manage(result) } },
+                        ) {
                             keyboard?.hide()
                             result.onSelect(context)
                             onResultSelected()
@@ -454,6 +507,17 @@ fun SearchPage(isActive: Boolean, onResultSelected: () -> Unit = {}) {
                     }
                 }
         }
+    }
+
+    managing?.let { app ->
+        ManageSheet(
+            app = app,
+            onDismiss = { managing = null; reloadKey++ },
+            onUninstall = {
+                uninstallApp(context, app.packageName)
+                managing = null
+            },
+        )
     }
 }
 
@@ -548,11 +612,13 @@ private fun SectionHeader(label: String) {
  * One tappable result: title on top, source/detail below. The [highlighted] top
  * hit gets a filled card and accent title to signal it's what Enter will open.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ResultRow(
     title: String,
     subtitle: String?,
     highlighted: Boolean = false,
+    onLongClick: (() -> Unit)? = null,
     onClick: () -> Unit,
 ) {
     val colors = UglyTheme.colors
@@ -568,7 +634,7 @@ private fun ResultRow(
                         .background(colors.surface)
                 } else Modifier
             )
-            .clickable(onClick = onClick)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .padding(
                 start = 16.dp,
                 end = if (highlighted) 16.dp else 0.dp,

@@ -1,8 +1,6 @@
 package com.uglyos.launcher
 
 import android.content.Context
-import android.content.Intent
-import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationVector1D
@@ -331,9 +329,7 @@ fun AppDrawer(
             app = app,
             onDismiss = { managing = null; reloadKey++ },
             onUninstall = {
-                context.startActivity(
-                    Intent(Intent.ACTION_DELETE, Uri.parse("package:${app.packageName}"))
-                )
+                uninstallApp(context, app.packageName)
                 managing = null
             },
         )
@@ -441,7 +437,7 @@ private fun AppCell(
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ManageSheet(
+internal fun ManageSheet(
     app: AppInfo,
     onDismiss: () -> Unit,
     onUninstall: () -> Unit,
