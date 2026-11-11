@@ -1,0 +1,74 @@
+name: release
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # all tags, for versioning and release notes
+
+      - name: Compute next version
+        id: version
+        run: |
+          version=$(.github/scripts/next-version.sh)
+          IFS=. read -r major minor patch <<<"$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "code=$((major * 10000 + minor * 100 + patch))" >> "$GITHUB_OUTPUT"
+          echo "Releasing v$version"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Unit tests
+        working-directory: launcher
+        run: ./gradlew --no-daemon test
+
+      - name: Build signed APK
+        working-directory: launcher
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          UGLYOS_KEYSTORE_PASSWORD: ${{ secrets.UGLYOS_KEYSTORE_PASSWORD }}
+          UGLYOS_KEY_ALIAS: ${{ secrets.UGLYOS_KEY_ALIAS }}
+          UGLYOS_KEY_PASSWORD: ${{ secrets.UGLYOS_KEY_PASSWORD }}
+        run: |
+          export UGLYOS_KEYSTORE_FILE="$RUNNER_TEMP/release.keystore"
+          echo "$KEYSTORE_BASE64" | base64 -d > "$UGLYOS_KEYSTORE_FILE"
+          ./gradlew --no-daemon assembleRelease \
+            -PuglyosVersionName="${{ steps.version.outputs.version }}" \
+            -PuglyosVersionCode="${{ steps.version.outputs.code }}"
+          rm -f "$UGLYOS_KEYSTORE_FILE"
+
+      - name: Collect assets
+        run: |
+          mkdir -p release
+          apk=$(ls launcher/app/build/outputs/apk/release/*.apk | grep -v unsigned | head -n1)
+          cp "$apk" release/uglyos-launcher.apk
+          cd release
+          sha256sum uglyos-launcher.apk > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Create tag and GitHub release
+        run: |
+          gh release create "v${{ steps.version.outputs.version }}" \
+            --target "$GITHUB_SHA" \
+            --title "v${{ steps.version.outputs.version }}" \
+            --generate-notes \
+            release/uglyos-launcher.apk release/SHA256SUMS
