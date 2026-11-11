@@ -51,14 +51,19 @@ data class AppInfo(
 
 /**
  * Query every app that exposes a MAIN/LAUNCHER activity, overlay each with its
- * [AppMeta] override, and sort by the resulting display name.
+ * [AppMeta] override, and sort by the resulting display name. Also prunes
+ * overrides left behind by uninstalled apps.
  */
 fun loadApps(context: Context): List<AppInfo> {
     val pm = context.packageManager
     val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+    val resolved = pm.queryIntentActivities(intent, 0)
+    // Self-heal: forget overrides for apps that are no longer installed. Every
+    // caller already runs this on Dispatchers.IO, so the prefs write is safe.
+    AppMeta.prune(context, resolved.map { it.activityInfo.packageName }.toSet())
     val names = AppMeta.names(context)
     val tags = AppMeta.tags(context)
-    return pm.queryIntentActivities(intent, 0)
+    return resolved
         .map {
             val pkg = it.activityInfo.packageName
             val system = it.loadLabel(pm).toString()

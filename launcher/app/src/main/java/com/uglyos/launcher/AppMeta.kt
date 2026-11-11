@@ -56,4 +56,19 @@ object AppMeta {
     fun clear(context: Context, pkg: String) {
         prefs(context).edit().remove(NAME + pkg).remove(TAGS + pkg).apply()
     }
+
+    /**
+     * Drop the overrides of every package not in [installed], in one editor pass —
+     * the self-healing sweep for apps that were uninstalled while customized.
+     * Reads and writes prefs, so call it off the main thread.
+     */
+    fun prune(context: Context, installed: Set<String>) {
+        val p = prefs(context)
+        val stale = p.all.keys.filter { k ->
+            (k.startsWith(NAME) && k.removePrefix(NAME) !in installed) ||
+                (k.startsWith(TAGS) && k.removePrefix(TAGS) !in installed)
+        }
+        if (stale.isEmpty()) return
+        p.edit().apply { stale.forEach { remove(it) } }.apply()
+    }
 }
