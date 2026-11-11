@@ -237,12 +237,20 @@ private fun searchContacts(context: Context, query: String, frecency: Map<String
 
 /** Always-present escape hatches so the box is never a dead end. */
 private fun webFallback(query: String): List<SearchResult> = listOf(
-    SearchResult("search the web", "\"$query\"", ResultSource.WEB, 1) { ctx ->
+    SearchResult("search the web", "\"$query\"", ResultSource.WEB, 2) { ctx ->
         val intent = Intent(Intent.ACTION_WEB_SEARCH).putExtra(SearchManager.QUERY, query)
         try {
             ctx.startActivity(intent)
         } catch (e: ActivityNotFoundException) {
             val url = "https://www.google.com/search?q=" + Uri.encode(query)
+            ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+        }
+    },
+    SearchResult("search maps", "\"$query\"", ResultSource.WEB, 1) { ctx ->
+        try {
+            ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=" + Uri.encode(query))))
+        } catch (e: ActivityNotFoundException) {
+            val url = "https://www.google.com/maps/search/?api=1&query=" + Uri.encode(query)
             ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
         }
     },
