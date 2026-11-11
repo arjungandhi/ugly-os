@@ -14,6 +14,9 @@
     <!-- Home screen shows your next event; requested at runtime. -->
     <uses-permission android:name="android.permission.READ_CALENDAR" />
 
+    <!-- Required (targetSdk >= 28) for ACTION_DELETE uninstall prompts to work. -->
+    <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
+
     <!--
       Lets us enumerate launchable apps without the QUERY_ALL_PACKAGES
       permission. A launcher legitimately needs to see apps that expose a

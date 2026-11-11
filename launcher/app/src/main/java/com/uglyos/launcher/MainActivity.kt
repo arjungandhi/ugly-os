@@ -3,6 +3,7 @@ package com.uglyos.launcher
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -85,6 +86,15 @@ fun launchApp(context: Context, packageName: String) {
         Frecency.record(context, "app:$packageName") // feed launch history into search ranking
     } catch (e: ActivityNotFoundException) {
         Toast.makeText(context, "Can't launch $packageName", Toast.LENGTH_SHORT).show()
+    }
+}
+
+/** Ask the system to uninstall an app (shows the system confirm dialog). */
+fun uninstallApp(context: Context, packageName: String) {
+    try {
+        context.startActivity(Intent(Intent.ACTION_DELETE, Uri.parse("package:$packageName")))
+    } catch (e: ActivityNotFoundException) {
+        Toast.makeText(context, "Can't uninstall $packageName", Toast.LENGTH_SHORT).show()
     }
 }
 
