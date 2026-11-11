@@ -37,6 +37,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -54,6 +55,9 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.runtime.DisposableEffect
 import com.uglyos.common.theme.UglyTheme
 import java.io.File
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Persistent launcher settings, backed by SharedPreferences.
@@ -184,6 +188,9 @@ fun SettingsPage() {
     var excludedCals by remember { mutableStateOf(Settings.excludedCalendars(context)) }
     var dockRows by remember { mutableStateOf(QuickLaunchStore.rows(context)) }
     var dockCols by remember { mutableStateOf(QuickLaunchStore.cols(context)) }
+    var exportStatus by remember { mutableStateOf("save to ${BackupStore.file.path}") }
+    var importStatus by remember { mutableStateOf("restore from ${BackupStore.file.path}") }
+    val scope = rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -279,6 +286,36 @@ fun SettingsPage() {
         }
         SettingSection("widget") {
             WidgetSettingsRow()
+        }
+        SettingSection("backup") {
+            SettingRow(
+                label = "export settings",
+                value = exportStatus,
+                configured = false,
+                onClick = {
+                    scope.launch {
+                        exportStatus = withContext(Dispatchers.IO) {
+                            runCatching { BackupStore.export(context) }
+                                .fold({ "exported" }, { "failed: ${it.message}" })
+                        }
+                    }
+                },
+            )
+            SettingDivider()
+            SettingRow(
+                label = "import settings",
+                value = importStatus,
+                configured = false,
+                onClick = {
+                    // Success restarts the process, so only a failure comes back.
+                    scope.launch {
+                        importStatus = withContext(Dispatchers.IO) {
+                            runCatching { BackupStore.import(context) }
+                                .fold({ "" }, { "failed: ${it.message}" })
+                        }
+                    }
+                },
+            )
         }
         SettingSection("permissions") {
             SettingRow(
