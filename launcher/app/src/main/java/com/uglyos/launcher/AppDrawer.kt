@@ -437,7 +437,7 @@ private fun AppCell(
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ManageSheet(
+internal fun ManageSheet(
     app: AppInfo,
     onDismiss: () -> Unit,
     onUninstall: () -> Unit,
